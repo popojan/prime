@@ -12,3 +12,4 @@ num-iter = "0.1.43"
 num-traits = "0.2.4"
 pbr = "1.0.4"
 num-prime = { version = "0.4.1", features=["big-int", "big-table"] }
+#parallel-stream = "2.1.3"
