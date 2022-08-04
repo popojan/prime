@@ -101,42 +101,23 @@ fn k_tuple(exact: &BigUint) -> (usize, usize) {
     return (tests, seq);
 }
 
-fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint)>, extra_tests: bool) -> (usize, usize, usize){
+fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint)>, extra_tests: bool) -> usize {
+    if !bigprime_dry(&a, i, j, k) {
+        return 0;
+    }
     let zero= BigUint::zero();
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
     let mut last = &a[i];
     let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
     let mut digit = BigUint::from(1_u64);
-    let mut leading = true;
-    let mut first_zero = false;
-    let mut trailing_zeros = 0;
-    let mut leading_zeros = 0;
-    let mut first = true;
     for  p in &a[i+1..j] {
         let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
-        if !first {
-            if add == zero {
-                if leading {
-                    leading_zeros += 1;
-                }
-                trailing_zeros += 1;
-            } else {
-                trailing_zeros = 0;
-                leading = false;
-            }
-        } else {
-            first = false;
-            first_zero = add == zero;
-        }
         accum = accum.add(digit.clone().mul(add));
         digit = digit.mul(&two);
         last = p;
     }
     let mut tests = 0;
-    if first_zero || trailing_zeros > 0 {
-        return (tests, leading_zeros, trailing_zeros);
-    }
     if accum > two {
         if  accum > zero && accum != one {
             if accum.clone().rem(&two) == zero {
@@ -171,7 +152,44 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
             }
         }
     }
-    return (tests, leading_zeros, trailing_zeros);
+    return tests;
+}
+
+fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
+    let zero= BigUint::zero();
+    let two = BigUint::from(2_u64);
+    let mut last = &a[i];
+    let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
+    let mut digit = BigUint::from(1_u64);
+    let mut leading = true;
+    let mut first_zero = false;
+    let mut trailing_zeros = 0;
+    let mut _leading_zeros = 0;
+    let mut first = true;
+    for  p in &a[i+1..j] {
+        let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
+        if !first {
+            if add == zero {
+                if leading {
+                    _leading_zeros += 1;
+                }
+                trailing_zeros += 1;
+            } else {
+                trailing_zeros = 0;
+                leading = false;
+            }
+        } else {
+            first = false;
+            first_zero = add == zero;
+        }
+        accum = accum.add(digit.clone().mul(add));
+        digit = digit.mul(&two);
+        last = p;
+    }
+    if first_zero || trailing_zeros > 0 {
+        return false;
+    }
+    return true;
 }
 
 fn magic(i:usize) ->usize {
@@ -184,21 +202,22 @@ fn main() {
     if args.len() > 1 {
         let arg1 = args.get(1).unwrap();
         if arg1 == "--help" || arg1 == "-h" {
-            println!("Usage: {} <lo> <hi> [<kk> <extra_tests> <min_steps>]", args.get(0).unwrap());
+            println!("Usage: {} <lo> <hi> [<asc> <kk> <extra_tests> <min_steps>]", args.get(0).unwrap());
             return;
         }
     }
     let lo = usize::from_str_radix(&args.get(1).unwrap_or(&"1".to_string()),10).unwrap();
     let hi = usize::from_str_radix(&args.get(2).unwrap_or(&"1000".to_string()),10).unwrap();
-    let kk = i64::from_str_radix(&args.get(3).unwrap_or(&"-1".to_string()),10).unwrap();
-    let extra_tests = usize::from_str_radix(&args.get(4).unwrap_or(&"0".to_string()),10).unwrap();
-    let min_steps = usize::from_str_radix(&args.get(5).unwrap_or(&"0".to_string()),10).unwrap();
+    let asc = usize::from_str_radix(&args.get(3).unwrap_or(&"1".to_string()),10).unwrap();
+    let kk = i64::from_str_radix(&args.get(4).unwrap_or(&"-1".to_string()),10).unwrap();
+    let extra_tests = usize::from_str_radix(&args.get(5).unwrap_or(&"0".to_string()),10).unwrap();
+    let min_steps = usize::from_str_radix(&args.get(6).unwrap_or(&"0".to_string()),10).unwrap();
 
     let mut a = Vec::<BigUint>::new();
     for p in primes(nth_prime((magic(hi)+1) as u64)+1 as u64).iter() {
         a.push(BigUint::from(*p));
     }
-    let mut i = magic(lo);
+    let mut i = lo;//magic(lo);
     let limit = magic(hi);
     let mut total_steps = 1;
     let mut kn;
@@ -207,7 +226,7 @@ fn main() {
     loop  {
         //let mut i = lo;
         kn = magic(i);
-        if i+kn > limit {
+        if kn > limit {
             break;
         }
         if total_steps < min_steps {
@@ -215,15 +234,28 @@ fn main() {
             total_steps += 1;
             continue;
         }
-        indices.push((i, i+kn, kk, extra_tests>0));
-        i = kn;
+        indices.push((i, kn-2, kk, extra_tests>0));
+        indices.push((i, kn-1, kk, extra_tests>0));
+        indices.push((i, kn, kk, extra_tests>0));
+        indices.push((i, kn+1, kk, extra_tests>0));
+        indices.push((i, kn+2, kk, extra_tests>0));
+        i += 1;
         total_steps += 1;
     }
-    let (i, j, _k, _extra) = indices.last().unwrap();
-    eprintln!("number of decimal digits upper bound = {}", ((j-i) as f64 * f64::ln(2.0)).ceil());
+    let ij = if asc>0 {
+        indices.sort_by(|b, a| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
+        let (i, j, _k, _extra) = indices.last().unwrap();
+        j-i
+    } else {
+        indices.sort_by(|a, b| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
+        let (i, j, _k, _extra) = indices.first().unwrap();
+        j-i
+    };
+
+    eprintln!("number of decimal digits upper bound = {}", ((ij) as f64 * f64::ln(2.0)).ceil());
     let probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint)>::new();
-        let (tests0,_,_) = bigprime(&a, i, j, k, &mut b, extra);
+        let tests0 = bigprime(&a, i, j, k, &mut b, extra);
         if b.len() > 0 {
             let tup = b.first().unwrap();
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone())
