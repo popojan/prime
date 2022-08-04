@@ -24,58 +24,6 @@ fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> BigUint{
     return accum;
 }
 
-fn _bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<BigUint>) -> (usize, usize, usize){
-    let mut last = &a[i];
-    let zero= BigUint::zero();
-    let one= BigUint::one();
-    let two = BigUint::from(2_u64);
-    let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
-    let mut digit = BigUint::from(1_u64);
-    let mut leading = true;
-    let mut first_zero = false;
-    let mut trailing_zeros = 0;
-    let mut leading_zeros = 0;
-    let mut first = true;
-    for  p in &a[i+1..j] {
-        let add = one.clone()-p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
-        if !first {
-            if add == zero {
-                if leading {
-                    leading_zeros += 1;
-                }
-                trailing_zeros += 1;
-            } else {
-                trailing_zeros = 0;
-                leading = false;
-            }
-        } else {
-            first = false;
-            first_zero = add == zero;
-        }
-        accum = accum.add(digit.clone().mul(add));
-        digit = digit.mul(&two);
-        last = p;
-    }
-    let mut tests = 0;
-    if first_zero || trailing_zeros > 0 {
-        return (tests, leading_zeros, trailing_zeros);
-    }
-    if accum > two {
-        if  accum > zero && accum != one {
-            if accum.clone().rem(&two) == zero {
-                accum = accum.add(&one);
-            }
-            let exact = myreduce(j, &accum, &a);
-            //let exact = accum;
-            if is_prime(&exact, None).probably() {
-                b.push(exact);
-            }
-            tests = 1;
-        }
-    }
-    return (tests, leading_zeros, trailing_zeros);
-}
-
 fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
     let zero= BigUint::zero();
     let one= BigUint::one();
@@ -153,7 +101,7 @@ fn k_tuple(exact: &BigUint) -> (usize, usize) {
     return (tests, seq);
 }
 
-fn popojan(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint)>, extra_tests: bool) -> (usize, usize, usize){
+fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint)>, extra_tests: bool) -> (usize, usize, usize){
     let zero= BigUint::zero();
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
@@ -197,7 +145,6 @@ fn popojan(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, 
             let exact = myreduce(j, &accum, &a);
             //let exact = accum;
             tests = 1;
-            //eprintln!("new {} {},{},{}", p0s.len(), i,j,k);
             if is_prime(&exact, None).probably() {
                 let mut description = vec!["prime".to_string()];
 
@@ -274,7 +221,7 @@ fn main() {
     }
     let probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint)>::new();
-        let (tests0,_,_) = popojan(&a, i, j, k, &mut b, extra);
+        let (tests0,_,_) = bigprime(&a, i, j, k, &mut b, extra);
         if b.len() > 0 {
             let tup = b.first().unwrap();
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone())

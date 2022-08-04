@@ -1,18 +1,12 @@
 [package]
 name = "prime"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-rand = "0.8.5"
+num-complex = "0.4.2"
 num-bigint =  { version = "0.4.3", features = ["rand"] }
+num-prime = { version = "0.4.1", features=["big-int", "big-table"] }
 num-iter = "0.1.43"
 num-traits = "0.2.4"
-pbr = "1.0.4"
-num-prime = { version = "0.4.1", features=["big-int", "big-table"] }
 rayon = "1.5.3"
-num-complex = "0.4.2"
-#simple_parallel = "0.3.0"
-#parallel-stream = "2.1.3"
