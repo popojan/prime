@@ -219,6 +219,8 @@ fn main() {
         i = kn;
         total_steps += 1;
     }
+    let (i, j, _k, _extra) = indices.last().unwrap();
+    eprintln!("number of decimal digits upper bound = {}", ((j-i) as f64 * f64::ln(2.0)).ceil());
     let probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint)>::new();
         let (tests0,_,_) = bigprime(&a, i, j, k, &mut b, extra);
