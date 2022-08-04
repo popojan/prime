@@ -4,7 +4,7 @@ use std::ops::{Add, Div, Mul, Rem, Sub};
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
-use std::collections::HashSet;
+use rayon::prelude::*;
 
 use std::env;
 
@@ -237,92 +237,64 @@ fn main() {
     if args.len() > 1 {
         let arg1 = args.get(1).unwrap();
         if arg1 == "--help" || arg1 == "-h" {
-            println!("Usage: {} <count> [<lo> <hi> <kk> <ascending> <minkn> <duplicates> <extra_tests> <min_steps>]", args.get(0).unwrap());
+            println!("Usage: {} <lo> <hi> [<kk> <extra_tests> <min_steps>]", args.get(0).unwrap());
             return;
         }
     }
-    let cnt = usize::from_str_radix(&args.get(1).unwrap_or(&"1000000".to_string()),10).unwrap();
-    let lo = usize::from_str_radix(&args.get(2).unwrap_or(&"1000".to_string()),10).unwrap();
-    let hi = usize::from_str_radix(&args.get(3).unwrap_or(&"2000".to_string()),10).unwrap();
-    let kk = i64::from_str_radix(&args.get(4).unwrap_or(&"-1".to_string()),10).unwrap();
-    let _ascending = usize::from_str_radix(&args.get(5).unwrap_or(&"0".to_string()),10).unwrap();
-    let _minkn = usize::from_str_radix(&args.get(6).unwrap_or(&"3".to_string()),10).unwrap();
-    let duplicates = usize::from_str_radix(&args.get(7).unwrap_or(&"0".to_string()),10).unwrap();
-    let extra_tests = usize::from_str_radix(&args.get(8).unwrap_or(&"0".to_string()),10).unwrap();
-    let min_steps = usize::from_str_radix(&args.get(9).unwrap_or(&"0".to_string()),10).unwrap();
+    let lo = usize::from_str_radix(&args.get(1).unwrap_or(&"1".to_string()),10).unwrap();
+    let hi = usize::from_str_radix(&args.get(2).unwrap_or(&"1000".to_string()),10).unwrap();
+    let kk = i64::from_str_radix(&args.get(3).unwrap_or(&"-1".to_string()),10).unwrap();
+    let extra_tests = usize::from_str_radix(&args.get(4).unwrap_or(&"0".to_string()),10).unwrap();
+    let min_steps = usize::from_str_radix(&args.get(5).unwrap_or(&"0".to_string()),10).unwrap();
 
     let mut a = Vec::<BigUint>::new();
     for p in primes(nth_prime((magic(hi)+1) as u64)+1 as u64).iter() {
         a.push(BigUint::from(*p));
     }
-    let mut lastcnt = 0;
-    let mut set = HashSet::<BigUint>::new();
-    let mut numbers_tested_total = 0;
-    let mut numbers_tested_total_last;
-    let mut numbers_tested_average = 0;
-    let mut numbers_found = 0;
-    //let mut kn = if ascending > 0 {minkn } else {hi - lo};
     let mut i = magic(lo);
     let limit = magic(hi);
     let mut total_steps = 1;
     let mut kn;
-    eprintln!("{}",vec!["total_steps", "numbers_found", "binary_digits", "decimal_digits", "numbers_tested_total", "numbers_tested_average", "speedup"].join(", "));
-    numbers_tested_total_last = numbers_tested_total;
-    while lastcnt < cnt  {
+    let mut indices = Vec::<(usize, usize, i64, bool)>::new(); //i, i+kn, kk, extra_tests
+
+    loop  {
         //let mut i = lo;
         kn = magic(i);
-        if kn > limit {
+        if i+kn > limit {
             break;
         }
         if total_steps < min_steps {
             i = kn;
-            //eprintln!("step {} {}", total_steps, kn);
             total_steps += 1;
             continue;
         }
-        //while i < hi - kn {
-        let mut b = Vec::<(usize, String, BigUint)>::new();
-        let (tests, _skipl, _skipr) = popojan(&a, i, i+kn, kk, &mut b, extra_tests>0);
-        numbers_tested_total += tests;
-        eprint!("\r{} tests", numbers_tested_total - numbers_tested_total_last);
-        let mut binary_digits=0;
-        let mut decimal_digits=0;
-        if b.len() > 0 {
-            for (tests, description, p) in b.iter() {
-                numbers_tested_total += tests;
-                if duplicates > 0 || !set.contains(p) {
-                    binary_digits = p.to_str_radix(2).len();
-                    decimal_digits = p.to_str_radix(10).len();
-                    let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-                    println!("{}/{}\t{}\t{}\t|{}|p({},{},{})\t{}",
-                             numbers_tested_total - numbers_tested_total_last, average_tests,
-                             binary_digits, decimal_digits, description, i, i+kn, kk, p);
-                    numbers_found += 1;
-                    set.insert(p.clone());
-                    lastcnt += 1;
-                    numbers_tested_average += average_tests;
-                    if lastcnt >= cnt {
-                        break;
-                    }
-                }
-            }
-            b.clear();
-            eprintln!("\r{{{}, {}, {}, {}, {}, {}, {:.2}}},",
-                      total_steps, numbers_found, binary_digits, decimal_digits, numbers_tested_total, numbers_tested_average, numbers_tested_average as f64 / numbers_tested_total as f64);
-            numbers_tested_total_last = numbers_tested_total;
-        }
-        /*if lastcnt >= cnt {
-            break;
-        }*/
-        i = kn;//skipl;//usize::max(skipl, skipr + 1);
+        indices.push((i, i+kn, kk, extra_tests>0));
+        i = kn;
         total_steps += 1;
-        //}
-        //kn = if ascending > 0 { kn + 1 } else { kn - 1 };
-        if lastcnt >= cnt {
-            break;
-        }
     }
-    eprintln!("Found {} primes. Total tests {} / average tests {} = {:.2} speedup",
-              numbers_found, numbers_tested_total, numbers_tested_average, numbers_tested_average as f64 /numbers_tested_total as f64);
+    let probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
+        let mut b = Vec::<(usize, String, BigUint)>::new();
+        let (tests0,_,_) = popojan(&a, i, j, k, &mut b, extra);
+        if b.len() > 0 {
+            let tup = b.first().unwrap();
+            (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone())
+        } else {
+            (i, j, k, tests0, "".to_string(), BigUint::zero())
+        }
+    }).inspect(|(i, j, k, tests, description, p) | {
+        if p > &BigUint::zero() {
+            //numbers_tested_total += tests;
+            let binary_digits = p.to_str_radix(2).len();
+            let decimal_digits = p.to_str_radix(10).len();
+            let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
+            println!("{}/{}\t{}\t{}\t|{}|p({},{},{})\t{}",
+                     tests, average_tests,
+                     binary_digits, decimal_digits, description, i,j, k, p);
+        }
+    }).map(|(_i, _j,_k, tests, _description, p) | {
+        num_complex::Complex::new(tests, if p > BigUint::zero() {1_usize} else {0_usize})
+    })
+    .sum::<num_complex::Complex<usize>>();
+    eprintln!("Found {}", probable_primes);
     return;
 }
