@@ -6,10 +6,47 @@ use num_traits::identities::One;
 use num_traits::identities::Zero;
 use rayon::prelude::*;
 
-use std::env;
-
 use num_prime::nt_funcs::{is_prime, primes, nth_prime};
 use num_traits::ToPrimitive;
+
+use clap::Parser;
+
+/// Simple program to generate big primes fast
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Order of the lowest precalculated prime
+    #[clap(short, long, value_parser, default_value_t = 1)]
+    from: usize,
+
+    /// Order of the highest precalculated prime
+    #[clap(short, long, value_parser, default_value_t = 1000)]
+    to: usize,
+
+    /// Start generating from smaller primes to bigger
+    #[clap(short, long, value_parser, default_value_t = true)]
+    ascending: bool,
+
+    /// Add extra power of two
+    #[clap(short, long, value_parser, default_value_t = -1)]
+    power_2: i64,
+
+    /// Perform extra tests (k-tuples, Cunningham)
+    #[clap(short, long, value_parser, default_value_t = false)]
+    extra_tests: bool,
+
+    /// Minimal generating span
+    #[clap(long, value_parser, default_value_t = 1)]
+    min_span: usize,
+
+    /// Maximal generating span
+    #[clap(long, value_parser, default_value_t = 1000)]
+    max_span: usize,
+
+    /// Do not immediately output probable primes to stderr
+    #[clap(short, long, value_parser, default_value_t = false)]
+    silent: bool
+}
 
 fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> BigUint{
     let mut accum = ap.clone();
@@ -192,68 +229,44 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
     return true;
 }
 
-fn magic(i:usize) ->usize {
+fn _magic(i:usize) ->usize {
     (BigUint::from(1827175083751_u64).div(BigUint::from(207256360584_u64))
         +BigUint::from(622226202419_u64).mul(BigUint::from(i)).div(BigUint::from(621769081752_u64))).to_usize().unwrap()+1
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() > 1 {
-        let arg1 = args.get(1).unwrap();
-        if arg1 == "--help" || arg1 == "-h" {
-            println!("Usage: {} <lo> <hi> [<asc> <kk> <extra_tests> <min_steps>]", args.get(0).unwrap());
-            return;
-        }
-    }
-    let lo = usize::from_str_radix(&args.get(1).unwrap_or(&"1".to_string()),10).unwrap();
-    let hi = usize::from_str_radix(&args.get(2).unwrap_or(&"1000".to_string()),10).unwrap();
-    let asc = usize::from_str_radix(&args.get(3).unwrap_or(&"1".to_string()),10).unwrap();
-    let kk = i64::from_str_radix(&args.get(4).unwrap_or(&"-1".to_string()),10).unwrap();
-    let extra_tests = usize::from_str_radix(&args.get(5).unwrap_or(&"0".to_string()),10).unwrap();
-    let min_steps = usize::from_str_radix(&args.get(6).unwrap_or(&"0".to_string()),10).unwrap();
+    let args = Args::parse();
+
+    let lo = args.from;
+    let hi = args.to;
+    let min_kn = args.min_span;
+    let max_kn = args.max_span;
+    let asc = args.ascending;
+    let kk = args.power_2;
+    let extra_tests = args.extra_tests;
 
     let mut a = Vec::<BigUint>::new();
-    for p in primes(nth_prime((magic(hi)+1) as u64)+1 as u64).iter() {
+    for p in primes(nth_prime((hi+1) as u64)+1 as u64).iter() {
         a.push(BigUint::from(*p));
     }
-    let mut i = lo;//magic(lo);
-    let limit = magic(hi);
-    let mut total_steps = 1;
-    let mut kn;
-    let mut indices = Vec::<(usize, usize, i64, bool)>::new(); //i, i+kn, kk, extra_tests
+    let mut indices = Vec::<(usize, usize, i64, bool)>::new();
 
-    loop  {
-        //let mut i = lo;
-        kn = magic(i);
-        if kn > limit {
-            break;
+    for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
+        for i in lo..hi-kn {
+            indices.push((i, i + kn, kk, extra_tests));
         }
-        if total_steps < min_steps {
-            i = kn;
-            total_steps += 1;
-            continue;
-        }
-        indices.push((i, kn-2, kk, extra_tests>0));
-        indices.push((i, kn-1, kk, extra_tests>0));
-        indices.push((i, kn, kk, extra_tests>0));
-        indices.push((i, kn+1, kk, extra_tests>0));
-        indices.push((i, kn+2, kk, extra_tests>0));
-        i += 1;
-        total_steps += 1;
     }
-    let ij = if asc>0 {
+    if asc {
         indices.sort_by(|b, a| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
-        let (i, j, _k, _extra) = indices.last().unwrap();
-        j-i
     } else {
         indices.sort_by(|a, b| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
-        let (i, j, _k, _extra) = indices.first().unwrap();
-        j-i
     };
 
-    eprintln!("number of decimal digits upper bound = {}", ((ij) as f64 * f64::ln(2.0)).ceil());
-    let probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
+    eprintln!("number of decimal digits bounds = ({}, {})",
+              ((usize::min(min_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil(),
+              ((usize::min(max_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil());
+
+    let mut probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint)>::new();
         let tests0 = bigprime(&a, i, j, k, &mut b, extra);
         if b.len() > 0 {
@@ -262,20 +275,38 @@ fn main() {
         } else {
             (i, j, k, tests0, "".to_string(), BigUint::zero())
         }
-    }).inspect(|(i, j, k, tests, description, p) | {
-        if p > &BigUint::zero() {
-            //numbers_tested_total += tests;
+    })
+    .inspect(|(i, j, k, _tests, description, p)| {
+        if p > &BigUint::zero() && !args.silent {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-            println!("{}/{}\t{}\t{}\t|{}|p({},{},{})\t{}",
-                     tests, average_tests,
+            eprintln!("{}\t{}\t|{}|p({},{},{})\t{}",
                      binary_digits, decimal_digits, description, i,j, k, p);
         }
-    }).map(|(_i, _j,_k, tests, _description, p) | {
-        num_complex::Complex::new(tests, if p > BigUint::zero() {1_usize} else {0_usize})
     })
-    .sum::<num_complex::Complex<usize>>();
-    eprintln!("Found {}", probable_primes);
+    .collect::<Vec<(usize, usize, i64, usize, String, BigUint)>>();
+
+    probable_primes.sort_by(|a,b|  {(&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap()});
+    let mut last_p = BigUint::from(1_usize);
+    let mut prime_count = 0;
+    let mut total_tests = 0;
+    let mut expected_tests = 0;
+    for (i, j, k, tests, description, p) in probable_primes {
+        if p > BigUint::zero() {
+            //numbers_tested_total += tests;
+            let binary_digits = p.to_str_radix(2).len();
+            let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
+            if p > last_p {
+                let decimal_digits = p.to_str_radix(10).len();
+                println!("{}\t{}\t|{}|p({},{},{})\t{}", binary_digits, decimal_digits, description, i, j, k, p);
+                last_p = p.clone();
+            }
+            prime_count += 1;
+            expected_tests += average_tests;
+        }
+        total_tests += tests;
+    }
+    eprintln!("Found {} primes using {} tests compared to {} expected tests. Speed-up {:.1}×.",
+              prime_count, total_tests, expected_tests, (expected_tests as f64)/(total_tests as f64));
     return;
 }
