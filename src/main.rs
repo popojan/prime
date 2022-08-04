@@ -10,22 +10,31 @@ use num_prime::nt_funcs::{is_prime, primes, nth_prime};
 use num_traits::ToPrimitive;
 
 use clap::Parser;
+use num_prime::PrimalityTestConfig;
 
-/// Simple program to generate big primes fast
+/// Program to generate big (strongly probable) primes fast. Uses fragments of prime DNA,
+/// sequence of half the difference between two successor primes mod 2 as binary digits
+/// of a big prime candidate being tested for primality. Somehow it works much better
+/// than random or sequential search.
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// Order of the lowest precalculated prime
-    #[clap(short, long, value_parser, default_value_t = 1)]
+    #[clap(short, long, value_parser, default_value_t = 2)]
     from: usize,
 
     /// Order of the highest precalculated prime
     #[clap(short, long, value_parser, default_value_t = 1000)]
     to: usize,
 
-    /// Start generating from smaller primes to bigger
-    #[clap(short, long, value_parser, default_value_t = true)]
-    ascending: bool,
+    /// Order of the highest precalculated divisor prime
+    #[clap(short, long, value_parser, default_value_t = 100000)]
+    divisors: usize,
+
+    /// Start generating from bigger primes to smaller
+    #[clap(long, value_parser, default_value_t = false)]
+    descending: bool,
 
     /// Add extra power of two
     #[clap(short, long, value_parser, default_value_t = -1)]
@@ -35,17 +44,29 @@ struct Args {
     #[clap(short, long, value_parser, default_value_t = false)]
     extra_tests: bool,
 
-    /// Minimal generating span
-    #[clap(long, value_parser, default_value_t = 1)]
+    /// Minimal DNA fragment length
+    #[clap(long, value_parser, default_value_t = 255)]
     min_span: usize,
 
-    /// Maximal generating span
-    #[clap(long, value_parser, default_value_t = 1000)]
+    /// undocumented, possible speedup
+    #[clap(long, value_parser, default_value_t = false)]
+    magic: bool,
+
+    /// Maximal DNA fragment length
+    #[clap(long, value_parser, default_value_t = 255)]
     max_span: usize,
 
-    /// Do not immediately output probable primes to stderr
-    #[clap(short, long, value_parser, default_value_t = false)]
-    silent: bool
+    /// Immediately output probable primes to stderr, possibly duplicated
+    #[clap(long, value_parser, default_value_t = false)]
+    verbose: bool,
+
+    /// Print debug information related to each tested span to stderr
+    #[clap(long, value_parser, default_value_t = false)]
+    debug: bool,
+
+    /// Perform final strict probable primality test on deduplicated primes
+    #[clap(long, value_parser, default_value_t = false)]
+    final_strict: bool
 }
 
 fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> BigUint{
@@ -229,9 +250,13 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
     return true;
 }
 
-fn _magic(i:usize) ->usize {
+fn magic(i:usize) ->usize {
     (BigUint::from(1827175083751_u64).div(BigUint::from(207256360584_u64))
         +BigUint::from(622226202419_u64).mul(BigUint::from(i)).div(BigUint::from(621769081752_u64))).to_usize().unwrap()+1
+}
+
+fn identity(i:usize) -> usize {
+    i
 }
 
 fn main() {
@@ -241,19 +266,21 @@ fn main() {
     let hi = args.to;
     let min_kn = args.min_span;
     let max_kn = args.max_span;
-    let asc = args.ascending;
+    let asc = !args.descending;
     let kk = args.power_2;
     let extra_tests = args.extra_tests;
 
+    let fmagic = if args.magic { magic} else {identity};
+
     let mut a = Vec::<BigUint>::new();
-    for p in primes(nth_prime((hi+1) as u64)+1 as u64).iter() {
+    for p in primes(nth_prime(fmagic(usize::max(args.divisors, hi+1)) as u64)+1 as u64).iter() {
         a.push(BigUint::from(*p));
     }
     let mut indices = Vec::<(usize, usize, i64, bool)>::new();
 
     for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
-        for i in lo..hi-kn {
-            indices.push((i, i + kn, kk, extra_tests));
+        for i in lo..hi-kn+1 {
+            indices.push((fmagic(i), fmagic(i + kn), kk, extra_tests));
         }
     }
     if asc {
@@ -266,7 +293,13 @@ fn main() {
               ((usize::min(min_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil(),
               ((usize::min(max_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil());
 
-    let mut probable_primes = indices.into_par_iter().map(|(i, j, k, extra)| {
+    let mut probable_primes = indices.into_par_iter()
+    .inspect(|(i, j, k,_extra)| {
+        if args.debug {
+            eprintln!("Testing span p({},{},{})... ", i, j, k);
+        }
+    })
+        .map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint)>::new();
         let tests0 = bigprime(&a, i, j, k, &mut b, extra);
         if b.len() > 0 {
@@ -277,26 +310,40 @@ fn main() {
         }
     })
     .inspect(|(i, j, k, _tests, description, p)| {
-        if p > &BigUint::zero() && !args.silent {
+        if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
             eprintln!("{}\t{}\t|{}|p({},{},{})\t{}",
                      binary_digits, decimal_digits, description, i,j, k, p);
+        } else if args.debug {
+            if _tests > &0 {
+                eprintln!("Span prime p({},{},{}) is composite", i, j, k);
+            }  else {
+                eprintln!("Span p({},{},{}) span starts or ends with zero", i, j, k);
+            }
         }
     })
     .collect::<Vec<(usize, usize, i64, usize, String, BigUint)>>();
 
-    probable_primes.sort_by(|a,b|  {(&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap()});
+    probable_primes.sort_by(|a,b|  {
+        let ordering = (&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap();
+        if !asc {
+            ordering.reverse()
+        } else {
+            ordering
+        }
+    });
     let mut last_p = BigUint::from(1_usize);
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
     for (i, j, k, tests, description, p) in probable_primes {
-        if p > BigUint::zero() {
+        if p > BigUint::zero() && (!args.final_strict
+            || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
             //numbers_tested_total += tests;
             let binary_digits = p.to_str_radix(2).len();
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-            if p > last_p {
+            if p != last_p {
                 let decimal_digits = p.to_str_radix(10).len();
                 println!("{}\t{}\t|{}|p({},{},{})\t{}", binary_digits, decimal_digits, description, i, j, k, p);
                 last_p = p.clone();
