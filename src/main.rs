@@ -36,6 +36,10 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     descending: bool,
 
+    /// Sorts resulting primes by underlying DNA fragment
+    #[clap(long, value_parser, default_value_t = false)]
+    sort_by_fragment: bool,
+
     /// Add extra power of two
     #[clap(short, long, value_parser, default_value_t = -1)]
     power_2: i64,
@@ -66,20 +70,26 @@ struct Args {
 
     /// Perform final strict probable primality test on deduplicated primes
     #[clap(long, value_parser, default_value_t = false)]
-    final_strict: bool
+    final_strict: bool,
+
+    /// Do not deduplicate resulting primes
+    #[clap(long, value_parser, default_value_t = false)]
+    duplicates: bool
 }
 
-fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> BigUint{
+fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> (BigUint, Vec<BigUint>) {
     let mut accum = ap.clone();
+    let mut divisors = vec![];
     for p in a[0..n].iter().chain(vec![BigUint::from(2_u64)].iter()) {
         while p < &accum && accum.clone().rem(p) == BigUint::zero() {
             accum = accum.div(p);
+            divisors.push(p.clone());
         }
         if p > &accum {
             break;
         }
     }
-    return accum;
+    return (accum, divisors);
 }
 
 fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
@@ -159,7 +169,7 @@ fn k_tuple(exact: &BigUint) -> (usize, usize) {
     return (tests, seq);
 }
 
-fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint)>, extra_tests: bool) -> usize {
+fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, extra_tests: bool) -> usize {
     if !bigprime_dry(&a, i, j, k) {
         return 0;
     }
@@ -181,7 +191,7 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
             if accum.clone().rem(&two) == zero {
                 accum = accum.add(&one);
             }
-            let exact = myreduce(j, &accum, &a);
+            let (exact, divisors) = myreduce(j-i, &accum, &a);
             //let exact = accum;
             tests = 1;
             if is_prime(&exact, None).probably() {
@@ -205,7 +215,7 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
                         description.push(format!("ktuple_{}", arity_k_tuple));
                     }
                 }
-                b.push((tests, description.join("|"), exact.clone()));
+                b.push((tests, description.join("|"), exact.clone(), divisors));
                 tests = 0;
             }
         }
@@ -284,9 +294,9 @@ fn main() {
         }
     }
     if asc {
-        indices.sort_by(|b, a| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
+        indices.sort_by(|b, a| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
     } else {
-        indices.sort_by(|a, b| (b.1 - b.0).partial_cmp(&(a.1 - a.0)).unwrap());
+        indices.sort_by(|a, b| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
     };
 
     eprintln!("number of decimal digits bounds = ({}, {})",
@@ -300,21 +310,21 @@ fn main() {
         }
     })
         .map(|(i, j, k, extra)| {
-        let mut b = Vec::<(usize, String, BigUint)>::new();
+        let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
         let tests0 = bigprime(&a, i, j, k, &mut b, extra);
         if b.len() > 0 {
             let tup = b.first().unwrap();
-            (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone())
+            (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
         } else {
-            (i, j, k, tests0, "".to_string(), BigUint::zero())
+            (i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
         }
     })
-    .inspect(|(i, j, k, _tests, description, p)| {
+    .inspect(|(i, j, k, _tests, description, p, divisors)| {
         if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            eprintln!("{}\t{}\t|{}|p({},{},{})\t{}",
-                     binary_digits, decimal_digits, description, i,j, k, p);
+            eprintln!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}",
+                     binary_digits, decimal_digits, description, i,j, k, p, divisors);
         } else if args.debug {
             if _tests > &0 {
                 eprintln!("Span prime p({},{},{}) is composite", i, j, k);
@@ -323,10 +333,14 @@ fn main() {
             }
         }
     })
-    .collect::<Vec<(usize, usize, i64, usize, String, BigUint)>>();
+    .collect::<Vec<(usize, usize, i64, usize, String, BigUint, Vec<BigUint>)>>();
 
     probable_primes.sort_by(|a,b|  {
-        let ordering = (&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap();
+        let ordering = if args.sort_by_fragment {
+            (a.1-a.0, a.0, a.1).partial_cmp(&(b.1-b.0, b.0, b.1)).unwrap()
+        } else {
+            (&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap()
+        };
         if !asc {
             ordering.reverse()
         } else {
@@ -337,15 +351,15 @@ fn main() {
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
-    for (i, j, k, tests, description, p) in probable_primes {
+    for (i, j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict
             || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
             //numbers_tested_total += tests;
             let binary_digits = p.to_str_radix(2).len();
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-            if p != last_p {
+            if p != last_p || args.duplicates {
                 let decimal_digits = p.to_str_radix(10).len();
-                println!("{}\t{}\t|{}|p({},{},{})\t{}", binary_digits, decimal_digits, description, i, j, k, p);
+                println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, j, k, p, divisors);
                 last_p = p.clone();
             }
             prime_count += 1;
