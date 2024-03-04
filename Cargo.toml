@@ -1,17 +1,17 @@
 [package]
 name = "prime"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 
 [dependencies]
-num-complex = "0.4.2"
-num-bigint =  { version = "0.4.3", features = ["rand"] }
-num-prime = { version = "0.4.1", features=["big-int", "big-table"] }
-num-iter = "0.1.43"
-num-traits = "0.2.4"
-rayon = "1.5.3"
-clap = { version = "3.2.16", features = ["derive"] }
-ctrlc = {version = "3.2.5", features = ["termination"]}
+num-complex = "0.4.5"
+num-bigint =  { version = "0.4.4", features = ["rand"] }
+num-prime = { version = "0.4.3", features=["big-int", "big-table"] }
+num-iter = "0.1.44"
+num-traits = "0.2.18"
+rayon = "1.9.0"
+clap = { version = "4.5.1", features = ["derive"] }
+ctrlc = {version = "3.4.2", features = ["termination"]}
 
 [profile.release]
 panic = "abort"

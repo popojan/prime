@@ -3,14 +3,13 @@ extern crate core;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Sub};
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
 use rayon::prelude::*;
 
 use num_prime::nt_funcs::{is_prime, primes, nth_prime};
-use num_traits::ToPrimitive;
 
 use clap::Parser;
 use num_prime::PrimalityTestConfig;
@@ -27,12 +26,12 @@ struct Args {
     #[clap(short, long, value_parser, default_value_t = 2)]
     from: usize,
 
-    /// Order of the highest precalculated prime
-    #[clap(short, long, value_parser, default_value_t = 1000)]
-    to: usize,
+    /// Can override order of the highest precalculated prime
+    #[clap(short, long, value_parser)]
+    to: Option<usize>,
 
     /// Order of the highest precalculated divisor prime
-    #[clap(short, long, value_parser, default_value_t = 100000)]
+    #[clap(short, long, value_parser, default_value_t = 1000)]
     divisors: usize,
 
     /// Start generating from bigger primes to smaller
@@ -43,25 +42,13 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     sort_by_fragment: bool,
 
-    /// Add extra power of two
+    /// Add extra power of two to get given number of decimal digits
     #[clap(short, long, value_parser, default_value_t = -1)]
     power_2: i64,
 
     /// Perform extra tests (k-tuples, Cunningham)
     #[clap(short, long, value_parser, default_value_t = false)]
     extra_tests: bool,
-
-    /// Minimal DNA fragment length
-    #[clap(long, value_parser, default_value_t = 255)]
-    min_span: usize,
-
-    /// undocumented, possible speedup
-    #[clap(long, value_parser, default_value_t = false)]
-    magic: bool,
-
-    /// Maximal DNA fragment length
-    #[clap(long, value_parser, default_value_t = 255)]
-    max_span: usize,
 
     /// Immediately output probable primes to stderr, possibly duplicated
     #[clap(long, value_parser, default_value_t = false)]
@@ -77,15 +64,24 @@ struct Args {
 
     /// Do not deduplicate resulting primes
     #[clap(long, value_parser, default_value_t = false)]
-    duplicates: bool
+    duplicates: bool,
+
+    /// Decimal digits requested (directly influence DNA fragment length)
+    #[clap()]
+    digits: usize,
+
+    /// Allow testing candidates divided by small precalculated divisors
+    #[clap(long, value_parser, default_value_t = false)]
+    allow_divided: bool,
+
 }
 
 fn myreduce(n:usize, ap:&BigUint, a: &[BigUint]) -> (BigUint, Vec<BigUint>) {
     let mut accum = ap.clone();
     let mut divisors = vec![];
-    for p in a[0..usize::min(n,a.len())].iter().chain(vec![BigUint::from(2_u64)].iter()) {
-        while p < &accum && accum.clone().rem(p) == BigUint::zero() {
-            accum = accum.div(p);
+    for p in a[0..usize::min(n+1,a.len())].iter() {
+        while p.lt(&accum) && accum.clone().rem(p).is_zero() {
+            accum.div_assign(p);
             divisors.push(p.clone());
         }
         if p > &accum || divisors.len() > 10 {
@@ -121,7 +117,6 @@ fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
 }
 
 fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
-    let zero= BigUint::zero();
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
     let mut seq = 1;
@@ -129,7 +124,7 @@ fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
     let mut tests = 0;
     loop {
         let mut cnextnext = dnext.clone().add(&one);
-        if cnextnext.clone().rem(&two) == zero {
+        if cnextnext.clone().rem(&two).is_zero() {
             cnextnext = cnextnext.div(&two);
             tests += 1;
             if is_prime(&cnextnext, None).probably() {
@@ -172,8 +167,8 @@ fn k_tuple(exact: &BigUint) -> (usize, usize) {
     return (tests, seq);
 }
 
-fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, max_divisor: usize, extra_tests: bool) -> usize {
-    if !bigprime_dry(&a, i, j, k) {
+fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args, extra_tests: bool) -> usize {
+    if !bigprime_dry(&a, i, j) {
         return 0;
     }
     let zero= BigUint::zero();
@@ -189,49 +184,49 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
         last = p;
     }
     let mut tests = 0;
-    if accum > two {
+    if accum.gt(&two) {
         if  accum > zero && accum != one {
-            if accum.clone().rem(&two) == zero {
-                accum = accum.add(&one);
+            if accum.clone().rem(&two).is_zero() {
+                accum.add_assign(&one);
             }
-            let (exact, divisors) = myreduce(j-i, &accum, &a[0..max_divisor]);
+            let (exact, divisors) = myreduce(args.divisors, &accum, &a);
             //let exact = accum;
-            tests = 1;
-            if is_prime(&exact, None).probably() {
-                let mut description = vec!["prime".to_string()];
+            if args.allow_divided || divisors.is_empty() {
+                tests = 1;
+                if is_prime(&exact, None).probably() {
+                    let mut description = vec!["prime".to_string()];
 
-                if extra_tests {
-                    let (_tests, arity_1st) = cunningham_1st(&exact);
-                    tests += _tests;
-                    let (_tests, arity_2nd) = cunningham_2nd(&exact);
-                    tests += _tests;
-                    let (_tests, arity_k_tuple) = k_tuple(&exact);
-                    tests += _tests;
+                    if extra_tests {
+                        let (_tests, arity_1st) = cunningham_1st(&exact);
+                        tests += _tests;
+                        let (_tests, arity_2nd) = cunningham_2nd(&exact);
+                        tests += _tests;
+                        let (_tests, arity_k_tuple) = k_tuple(&exact);
+                        tests += _tests;
 
-                    if arity_1st > 1 {
-                        description.push(format!("cunn:1st_{}", arity_1st));
+                        if arity_1st > 1 {
+                            description.push(format!("cunn:1st_{}", arity_1st));
+                        }
+                        if arity_2nd > 1 {
+                            description.push(format!("cunn:2nd_{}", arity_2nd));
+                        }
+                        if arity_k_tuple > 1 {
+                            description.push(format!("ktuple_{}", arity_k_tuple));
+                        }
                     }
-                    if arity_2nd > 1 {
-                        description.push(format!("cunn:2nd_{}", arity_2nd));
-                    }
-                    if arity_k_tuple > 1 {
-                        description.push(format!("ktuple_{}", arity_k_tuple));
-                    }
+                    b.push((tests, description.join("|"), exact.clone(), divisors));
+                    tests = 0;
                 }
-                b.push((tests, description.join("|"), exact.clone(), divisors));
-                tests = 0;
             }
         }
     }
     return tests;
 }
 
-fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
+fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
     let zero= BigUint::zero();
     let two = BigUint::from(2_u64);
     let mut last = &a[i];
-    let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
-    let mut digit = BigUint::from(1_u64);
     let mut leading = true;
     let mut first_zero = false;
     let mut trailing_zeros = 0;
@@ -253,8 +248,6 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
             first = false;
             first_zero = add == zero;
         }
-        accum = accum.add(digit.clone().mul(add));
-        digit = digit.mul(&two);
         last = p;
     }
     if first_zero || trailing_zeros > 0 {
@@ -263,37 +256,26 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize,j:usize,k:i64) -> bool{
     return true;
 }
 
-fn magic(i:usize) ->usize {
-    (BigUint::from(1827175083751_u64).div(BigUint::from(207256360584_u64))
-        +BigUint::from(622226202419_u64).mul(BigUint::from(i)).div(BigUint::from(621769081752_u64))).to_usize().unwrap()+1
-}
-
-fn identity(i:usize) -> usize {
-    i
-}
-
 fn main() {
     let args = Args::parse();
 
+    let min_kn = (args.digits as f64 * f64::log2(10.0)).floor() as usize;
+    let max_kn = ((args.digits as f64) * f64::log2(10.0)).ceil() as usize;
     let lo = args.from;
-    let hi = args.to;
-    let min_kn = args.min_span;
-    let max_kn = args.max_span;
+    let hi = args.to.unwrap_or(min_kn * 10 + lo);
     let asc = !args.descending;
-    let kk = args.power_2;
+    let kk = if args.power_2 < 0 {-1} else {(args.power_2 as f64 * f64::log2(10.0)).floor() as i64};
     let extra_tests = args.extra_tests;
 
-    let fmagic = if args.magic { magic} else {identity};
-
     let mut a = Vec::<BigUint>::new();
-    for p in primes(nth_prime(fmagic(usize::max(args.divisors, hi+1)) as u64)+1 as u64).iter() {
+    for p in primes(nth_prime(usize::max(args.divisors, hi+1) as u64)+1_u64).iter() {
         a.push(BigUint::from(*p));
     }
     let mut indices = Vec::<(usize, usize, i64, bool)>::new();
 
     for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
         for i in lo..hi-kn+1 {
-            indices.push((fmagic(i), fmagic(i + kn), kk, extra_tests));
+            indices.push((i, i + kn, kk, extra_tests));
         }
     }
     if asc {
@@ -301,10 +283,6 @@ fn main() {
     } else {
         indices.sort_by(|a, b| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
     };
-
-    eprintln!("number of decimal digits bounds = ({}, {})",
-              ((usize::min(min_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil(),
-              ((usize::min(max_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil());
 
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
@@ -323,7 +301,7 @@ fn main() {
         .map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
         let tests0 = if running.load(Ordering::SeqCst) {
-            bigprime(&a, i, j, k, &mut b, args.divisors, extra)
+            bigprime(&a, i, j, k, &mut b, &args, extra)
         } else {
             0
         };
@@ -383,7 +361,7 @@ fn main() {
         }
         total_tests += tests;
     }
-    eprintln!("Found {} primes using {} tests compared to {} expected tests. Speed-up {:.1}×.",
+    eprintln!("Found {} probable primes using {} tests compared to {} expected tests. Speed-up {:.1}×.",
               prime_count, total_tests, expected_tests, (expected_tests as f64)/(total_tests as f64));
     return;
 }
