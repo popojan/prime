@@ -1,5 +1,6 @@
 extern crate core;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -42,7 +43,7 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     sort_by_fragment: bool,
 
-    /// Add extra power of two to get given number of decimal digits
+    /// Add an extra power of two
     #[clap(short, long, value_parser, default_value_t = -1)]
     power_2: i64,
 
@@ -66,9 +67,13 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     duplicates: bool,
 
-    /// Decimal digits requested (directly influence DNA fragment length)
+    /// Minimum successive primes used (DNA fragment length, binary digits minus one)
     #[clap()]
-    digits: usize,
+    min_binary_digits: Option<usize>,
+
+    /// Maximum successive primes used (DNA fragment length, binary digits minus one) [default: same as minimum]
+    #[clap()]
+    max_binary_digits: Option<usize>,
 
     /// Allow testing candidates divided by small precalculated divisors
     #[clap(long, value_parser, default_value_t = false)]
@@ -259,12 +264,12 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
 fn main() {
     let args = Args::parse();
 
-    let min_kn = (args.digits as f64 * f64::log2(10.0)).floor() as usize;
-    let max_kn = ((args.digits as f64) * f64::log2(10.0)).ceil() as usize;
+    let min_kn = args.min_binary_digits.unwrap_or(args.to.unwrap_or(args.from + 100) - args.from);
+    let max_kn = args.max_binary_digits.unwrap_or(min_kn) ;
     let lo = args.from;
-    let hi = args.to.unwrap_or(min_kn * 10 + lo);
+    let hi = args.to.unwrap_or(max_kn * 10 + lo);
     let asc = !args.descending;
-    let kk = if args.power_2 < 0 {-1} else {(args.power_2 as f64 * f64::log2(10.0)).floor() as i64};
+    let kk = args.power_2;
     let extra_tests = args.extra_tests;
 
     let mut a = Vec::<BigUint>::new();
@@ -340,21 +345,23 @@ fn main() {
             ordering
         }
     });
-    let mut last_p = BigUint::from(1_usize);
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
 
+    let mut seen = HashMap::<BigUint, bool>::new();
     for (i, j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict
             || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
             //numbers_tested_total += tests;
             let binary_digits = p.to_str_radix(2).len();
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-            if p != last_p || args.duplicates {
+            if !seen.contains_key(&p) || args.duplicates {
                 let decimal_digits = p.to_str_radix(10).len();
                 println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, j, k, p, divisors);
-                last_p = p.clone();
+                if !args.duplicates {
+                    seen.insert(p, true);
+                }
             }
             prime_count += 1;
             expected_tests += average_tests;
