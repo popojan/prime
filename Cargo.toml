@@ -11,3 +11,9 @@ num-iter = "0.1.43"
 num-traits = "0.2.4"
 rayon = "1.5.3"
 clap = { version = "3.2.16", features = ["derive"] }
+ctrlc = {version = "3.2.5", features = ["termination"]}
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+

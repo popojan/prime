@@ -1,5 +1,8 @@
 extern crate core;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::identities::One;
@@ -77,15 +80,15 @@ struct Args {
     duplicates: bool
 }
 
-fn myreduce(n:usize, ap:&BigUint, a: &Vec<BigUint>) -> (BigUint, Vec<BigUint>) {
+fn myreduce(n:usize, ap:&BigUint, a: &[BigUint]) -> (BigUint, Vec<BigUint>) {
     let mut accum = ap.clone();
     let mut divisors = vec![];
-    for p in a[0..n].iter().chain(vec![BigUint::from(2_u64)].iter()) {
+    for p in a[0..usize::min(n,a.len())].iter().chain(vec![BigUint::from(2_u64)].iter()) {
         while p < &accum && accum.clone().rem(p) == BigUint::zero() {
             accum = accum.div(p);
             divisors.push(p.clone());
         }
-        if p > &accum {
+        if p > &accum || divisors.len() > 10 {
             break;
         }
     }
@@ -169,7 +172,7 @@ fn k_tuple(exact: &BigUint) -> (usize, usize) {
     return (tests, seq);
 }
 
-fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, extra_tests: bool) -> usize {
+fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, max_divisor: usize, extra_tests: bool) -> usize {
     if !bigprime_dry(&a, i, j, k) {
         return 0;
     }
@@ -191,7 +194,7 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
             if accum.clone().rem(&two) == zero {
                 accum = accum.add(&one);
             }
-            let (exact, divisors) = myreduce(j-i, &accum, &a);
+            let (exact, divisors) = myreduce(j-i, &accum, &a[0..max_divisor]);
             //let exact = accum;
             tests = 1;
             if is_prime(&exact, None).probably() {
@@ -303,6 +306,14 @@ fn main() {
               ((usize::min(min_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil(),
               ((usize::min(max_kn, hi-lo)) as f64 * f64::log10(2.0)).ceil());
 
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+        eprintln!("Ctrl+C handler called!");
+    }).expect("Error setting Ctrl-C handler");
+
     let mut probable_primes = indices.into_par_iter()
     .inspect(|(i, j, k,_extra)| {
         if args.debug {
@@ -311,7 +322,11 @@ fn main() {
     })
         .map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
-        let tests0 = bigprime(&a, i, j, k, &mut b, extra);
+        let tests0 = if running.load(Ordering::SeqCst) {
+            bigprime(&a, i, j, k, &mut b, args.divisors, extra)
+        } else {
+            0
+        };
         if b.len() > 0 {
             let tup = b.first().unwrap();
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
@@ -351,6 +366,7 @@ fn main() {
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
+
     for (i, j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict
             || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
