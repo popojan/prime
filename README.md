@@ -73,3 +73,9 @@ real    0m3.306s
 user    0m23.744s
 sys     0m0.015s
 ```
+
+It's deterministic, you can always find the same primes later using the same command-line arguments or even faster thanks
+to the descriptions given, e.g first of the three primes above given `p(2284,2616,3321)`: 
+```
+./prime -f 2284 -t 2616 -p 1000 100
+```
