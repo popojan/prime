@@ -9,6 +9,7 @@ use num_bigint::{BigUint, BigInt, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
 use num_traits::Signed;
+use num_traits::Num;
 use rayon::prelude::*;
 
 use num_prime::nt_funcs::{is_prime, primes, nth_prime};
@@ -21,13 +22,6 @@ use num_prime::PrimalityTestConfig;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Order of the lowest precalculated prime
-    #[clap(short, long, value_parser, default_value_t = 2)]
-    from: usize,
-
-    /// Can override order of the highest precalculated prime
-    #[clap(short, long, value_parser)]
-    to: Option<usize>,
 
     /// Order of the highest precalculated divisor prime
     #[clap(short, long, value_parser, default_value_t = 1000)]
@@ -67,11 +61,11 @@ struct Args {
 
     /// Nesting initial number - lower bound (default: 1)
     #[clap()]
-    base_from: Option<usize>,
+    base_from: Option<String>,
 
     /// Nesting initial number - upper bound (default: 100)
     #[clap()]
-    base_to: Option<usize>,
+    base_to: Option<String>,
 
     /// Allow testing candidates divided by small precalculated divisors
     #[clap(long, value_parser, default_value_t = false)]
@@ -310,25 +304,29 @@ fn main() {
 
 
     let kk: u64 = args.nesting_level.unwrap_or(3_u64);
-    let min_kn = args.base_from.unwrap_or(1);
-    let max_kn = args.base_to.unwrap_or(100) ;
-    let lo = args.from;
-    let hi = args.to.unwrap_or(max_kn * 10 + lo);
+    let min_kn = BigInt::from_str_radix(&args.base_from.as_ref().unwrap_or(&"1".to_string()), 10).unwrap();
+    let max_kn = BigInt::from_str_radix(&args.base_to.as_ref().unwrap_or(&"100".to_string()), 10).unwrap();
     let asc = !args.descending;
 
     let mut a = Vec::<BigUint>::new();
-    for p in primes(nth_prime(usize::max(args.divisors, hi+1) as u64)+1_u64).iter() {
+    for p in primes(nth_prime(args.divisors as u64)+1_u64).iter() {
         a.push(BigUint::from(*p));
     }
-    let mut indices = Vec::<(usize, usize, u64)>::new();
+    let mut indices = Vec::<(BigInt, BigInt, u64)>::new();
 
-    for kn in min_kn..max_kn  {
-        indices.push((kn, kn, kk));
+    let mut bi = min_kn.clone();
+    while bi.lt(&max_kn) {
+        indices.push((bi.clone(), bi.clone(), kk));
+        bi.add_assign(&BigInt::one());
     }
     if asc {
-        indices.sort_by(|b, a| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
+        indices.sort_by(|b, a| (
+            b.0.clone(), b.1.clone() - b.0.clone()).partial_cmp(&(a.0.clone(), a.1.clone() - a.0.clone())
+        ).unwrap());
     } else {
-        indices.sort_by(|a, b| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
+        indices.sort_by(|a, b| (
+            b.0.clone(), b.1.clone() - b.0.clone()).partial_cmp(&(a.0.clone(), a.1.clone() - a.0.clone())
+        ).unwrap());
     };
 
     let running = Arc::new(AtomicBool::new(true));
@@ -349,7 +347,7 @@ fn main() {
         let mut b = vec![];
         let tests0  = if running.load(Ordering::SeqCst) {
             nested_prime(&a,
-                         &BigInt::from(i).shl(1_u32).add(&BigInt::one()),
+                         &BigInt::from(i.clone()).shl(1_u32).add(&BigInt::one()),
                          kk as usize,
                          &mut b,
                          &args)
@@ -376,7 +374,7 @@ fn main() {
             }
         }
     })
-    .collect::<Vec<(usize, usize, u64, usize, String, BigUint, Vec<BigUint>)>>();
+    .collect::<Vec<(BigInt, BigInt, u64, usize, String, BigUint, Vec<BigUint>)>>();
 
     let mut prime_count = 0;
     let mut total_tests = 0;

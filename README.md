@@ -17,8 +17,6 @@ Arguments:
   [BASE_TO]        Nesting initial number - upper bound (default: 100)
 
 Options:
-  -f, --from <FROM>          Order of the lowest precalculated prime [default: 2]
-  -t, --to <TO>              Can override order of the highest precalculated prime
   -d, --divisors <DIVISORS>  Order of the highest precalculated divisor prime [default: 1000]
       --descending           Start generating from bigger primes to smaller
       --sort-by-fragment     Sorts resulting primes by underlying DNA fragment
