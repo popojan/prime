@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Sub};
-use num_bigint::{BigUint, ToBigUint};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Shl, Shr, Sub};
+use num_bigint::{BigUint, BigInt, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
+use num_traits::Signed;
 use rayon::prelude::*;
 
 use num_prime::nt_funcs::{is_prime, primes, nth_prime};
@@ -67,13 +68,17 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     duplicates: bool,
 
-    /// Minimum successive primes used (DNA fragment length, binary digits minus one)
+    /// Nesting level (default: 3)
     #[clap()]
-    min_binary_digits: Option<usize>,
+    nesting_level: Option<u64>,
 
-    /// Maximum successive primes used (DNA fragment length, binary digits minus one) [default: same as minimum]
+    /// Nesting initial number - lower bound (default: 1)
     #[clap()]
-    max_binary_digits: Option<usize>,
+    base_from: Option<usize>,
+
+    /// Nesting initial number - upper bound (default: 100)
+    #[clap()]
+    base_to: Option<usize>,
 
     /// Allow testing candidates divided by small precalculated divisors
     #[clap(long, value_parser, default_value_t = false)]
@@ -261,27 +266,70 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
     return true;
 }
 
+fn nested_prime(aa: &Vec<BigUint>, n: &BigInt, k: usize, ret: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args) -> usize {
+    let mut a: BigInt = n.sub(&BigInt::one()).shr(1);
+    let mut b: BigInt = n.add(&BigInt::one()).shr(1);
+    for i in 0..k {
+        let na = a.clone().mul(&b).shl(1) - a.clone().sub(&b).abs();
+        let nb = (a.clone().mul(&a).add(b.clone().mul(&b)).sub(&BigInt::one())).div(a.clone().sub(&b).abs());
+        a = na;
+        b = nb;
+    }
+    let pp: BigUint = a.add(&b).to_biguint().unwrap();
+    let (exact, divisors) = myreduce(args.divisors, &pp, &aa);
+    //let exact = accum;
+
+    let mut tests = 0;
+    if args.allow_divided || divisors.is_empty() {
+        tests = 1;
+        if is_prime(&exact, None).probably() {
+            let mut description = vec!["prime".to_string()];
+
+            if args.extra_tests {
+                let (_tests, arity_1st) = cunningham_1st(&exact);
+                tests += _tests;
+                let (_tests, arity_2nd) = cunningham_2nd(&exact);
+                tests += _tests;
+                let (_tests, arity_k_tuple) = k_tuple(&exact);
+                tests += _tests;
+
+                if arity_1st > 1 {
+                    description.push(format!("cunn:1st_{}", arity_1st));
+                }
+                if arity_2nd > 1 {
+                    description.push(format!("cunn:2nd_{}", arity_2nd));
+                }
+                if arity_k_tuple > 1 {
+                    description.push(format!("ktuple_{}", arity_k_tuple));
+                }
+            }
+            ret.push((tests, description.join("|"), exact.clone(), divisors));
+            tests = 0;
+        }
+    }
+    return tests;
+}
+
 fn main() {
     let args = Args::parse();
 
-    let min_kn = args.min_binary_digits.unwrap_or(args.to.unwrap_or(args.from + 100) - args.from);
-    let max_kn = args.max_binary_digits.unwrap_or(min_kn) ;
+
+    let kk: u64 = args.nesting_level.unwrap_or(3_u64);
+    let min_kn = args.base_from.unwrap_or(1);
+    let max_kn = args.base_to.unwrap_or(100) ;
     let lo = args.from;
     let hi = args.to.unwrap_or(max_kn * 10 + lo);
     let asc = !args.descending;
-    let kk = args.power_2;
     let extra_tests = args.extra_tests;
 
     let mut a = Vec::<BigUint>::new();
     for p in primes(nth_prime(usize::max(args.divisors, hi+1) as u64)+1_u64).iter() {
         a.push(BigUint::from(*p));
     }
-    let mut indices = Vec::<(usize, usize, i64, bool)>::new();
+    let mut indices = Vec::<(usize, usize, u64, bool)>::new();
 
-    for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
-        for i in lo..hi-kn+1 {
-            indices.push((i, i + kn, kk, extra_tests));
-        }
+    for kn in min_kn..max_kn  {
+        indices.push((kn, kn, kk, extra_tests));
     }
     if asc {
         indices.sort_by(|b, a| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
@@ -304,9 +352,13 @@ fn main() {
         }
     })
         .map(|(i, j, k, extra)| {
-        let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
-        let tests0 = if running.load(Ordering::SeqCst) {
-            bigprime(&a, i, j, k, &mut b, &args, extra)
+        let mut b = vec![];
+        let tests0  = if running.load(Ordering::SeqCst) {
+            nested_prime(&a,
+                         &BigInt::from(i).shl(1_u32).add(&BigInt::one()),
+                         kk as usize,
+                         &mut b,
+                         &args)
         } else {
             0
         };
@@ -321,30 +373,17 @@ fn main() {
         if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            eprintln!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}",
-                     binary_digits, decimal_digits, description, i,j, k, p, divisors);
+            eprintln!("{}\t{}\t|{}|n({},{})\t{}\t{:?}",
+                     binary_digits, decimal_digits, description, i, k, p, divisors);
         } else if args.debug {
             if _tests > &0 {
-                eprintln!("Span prime p({},{},{}) is composite", i, j, k);
+                eprintln!("Nested prime p({},{},{}) is composite", i, j, k);
             }  else {
-                eprintln!("Span p({},{},{}) span starts or ends with zero", i, j, k);
             }
         }
     })
-    .collect::<Vec<(usize, usize, i64, usize, String, BigUint, Vec<BigUint>)>>();
+    .collect::<Vec<(usize, usize, u64, usize, String, BigUint, Vec<BigUint>)>>();
 
-    probable_primes.sort_by(|a,b|  {
-        let ordering = if args.sort_by_fragment {
-            (a.1-a.0, a.0, a.1).partial_cmp(&(b.1-b.0, b.0, b.1)).unwrap()
-        } else {
-            (&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap()
-        };
-        if !asc {
-            ordering.reverse()
-        } else {
-            ordering
-        }
-    });
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
@@ -358,7 +397,7 @@ fn main() {
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
             if !seen.contains_key(&p) || args.duplicates {
                 let decimal_digits = p.to_str_radix(10).len();
-                println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, j, k, p, divisors);
+                println!("{}\t{}\t|{}|n({},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, k, p, divisors);
                 if !args.duplicates {
                     seen.insert(p, true);
                 }
