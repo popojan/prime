@@ -7,18 +7,21 @@ Program generates big (strongly probable) primes fast.
 
 ## Usage
 ```
-Usage: prime [OPTIONS] <DIGITS>
+Program to generate big (strongly probable) primes fast
+
+Usage: prime [OPTIONS] [NESTING_LEVEL] [BASE_FROM] [BASE_TO]
 
 Arguments:
-  <DIGITS>  Binary digits requested (DNA fragment length)
+  [NESTING_LEVEL]  Nesting level (default: 3)
+  [BASE_FROM]      Nesting initial number - lower bound (default: 1)
+  [BASE_TO]        Nesting initial number - upper bound (default: 100)
 
 Options:
   -f, --from <FROM>          Order of the lowest precalculated prime [default: 2]
-  -t, --to <TO>              Order of the highest precalculated prime
+  -t, --to <TO>              Can override order of the highest precalculated prime
   -d, --divisors <DIVISORS>  Order of the highest precalculated divisor prime [default: 1000]
       --descending           Start generating from bigger primes to smaller
       --sort-by-fragment     Sorts resulting primes by underlying DNA fragment
-  -p, --power-2 <POWER_2>    Add extra power of two [default: -1]
   -e, --extra-tests          Perform extra tests (k-tuples, Cunningham)
       --verbose              Immediately output probable primes to stderr, possibly duplicated
       --debug                Print debug information related to each tested span to stderr
