@@ -1,14 +1,20 @@
+mod rpn;
+
 extern crate core;
 
-use std::collections::HashMap;
+use crate::rpn::_parse_rpn;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+use indicatif::ParallelProgressIterator;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Shl, Shr, Sub};
 use num_bigint::{BigUint, BigInt, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
-use num_traits::Signed;
+use num_traits::{Signed, ToPrimitive};
 use num_traits::Num;
 use rayon::prelude::*;
 
@@ -39,7 +45,7 @@ struct Args {
     #[clap(short, long, value_parser, default_value_t = false)]
     extra_tests: bool,
 
-    /// Immediately output probable primes to stderr, possibly duplicated
+    /// Immediately output probable primes to stderr
     #[clap(long, value_parser, default_value_t = false)]
     verbose: bool,
 
@@ -47,25 +53,21 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     debug: bool,
 
-    /// Perform final strict probable primality test on deduplicated primes
+    /// Perform final strict probable primality test
     #[clap(long, value_parser, default_value_t = false)]
     final_strict: bool,
-
-    /// Do not deduplicate resulting primes
-    #[clap(long, value_parser, default_value_t = false)]
-    duplicates: bool,
 
     /// Nesting level (default: 3)
     #[clap()]
     nesting_level: Option<u64>,
 
-    /// Nesting initial number - lower bound (default: 1)
+    /// Nesting initial number (default: 1)
     #[clap()]
     base_from: Option<String>,
 
-    /// Nesting initial number - upper bound (default: 100)
+    /// Number of consecutive numbers to test (default: 100)
     #[clap()]
-    base_to: Option<String>,
+    base_count: Option<String>,
 
     /// Allow testing candidates divided by small precalculated divisors
     #[clap(long, value_parser, default_value_t = false)]
@@ -304,8 +306,18 @@ fn main() {
 
 
     let kk: u64 = args.nesting_level.unwrap_or(3_u64);
-    let min_kn = BigInt::from_str_radix(&args.base_from.as_ref().unwrap_or(&"1".to_string()), 10).unwrap();
-    let max_kn = BigInt::from_str_radix(&args.base_to.as_ref().unwrap_or(&"100".to_string()), 10).unwrap();
+    let base_from = args.base_from.clone().unwrap_or("1".to_string());
+    let base_count = args.base_count.clone().unwrap_or("100".to_string());
+    let min_kn = if base_from.contains(" ") {
+        _parse_rpn(&base_from)
+    } else {
+        BigInt::from_str_radix(&base_from, 10).unwrap()
+    };
+    let max_kn = if base_count.contains(" ") {
+        _parse_rpn(&base_count)
+    } else {
+        BigInt::from_str_radix(&base_count, 10).unwrap()
+    };
     let asc = !args.descending;
 
     let mut a = Vec::<BigUint>::new();
@@ -315,7 +327,8 @@ fn main() {
     let mut indices = Vec::<(BigInt, BigInt, u64)>::new();
 
     let mut bi = min_kn.clone();
-    while bi.lt(&max_kn) {
+    let lim = min_kn.add(&max_kn);
+    while bi.lt(&lim) {
         indices.push((bi.clone(), bi.clone(), kk));
         bi.add_assign(&BigInt::one());
     }
@@ -337,10 +350,18 @@ fn main() {
         eprintln!("Ctrl+C handler called!");
     }).expect("Error setting Ctrl-C handler");
 
+    let pbr = ProgressBar::new(max_kn.to_u64().unwrap()).with_style(
+        ProgressStyle::with_template(
+            "{msg} {wide_bar} {pos}/{len} {elapsed}/{duration} [{binary_bytes_per_sec}]",
+        )
+        .unwrap(),
+    );
+
     let probable_primes = indices.into_par_iter()
-    .inspect(|(i, j, k)| {
+    .progress_with(pbr.clone())
+    .inspect(|(i, _j, k)| {
         if args.debug {
-            eprintln!("Testing span p({},{},{})... ", i, j, k);
+            println!("Testing nested number n({},{})... ", i, k);
         }
     })
         .map(|(i, j, k)| {
@@ -356,20 +377,21 @@ fn main() {
         };
         if b.len() > 0 {
             let tup = b.first().unwrap();
+            pbr.set_message(format!("Found n({}, {})!", i, k));
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
         } else {
             (i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
         }
     })
-    .inspect(|(i, j, k, _tests, description, p, divisors)| {
+    .inspect(|(i, _j, k, _tests, description, p, divisors)| {
         if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            eprintln!("{}\t{}\t|{}|n({},{})\t{}\t{:?}",
+            println!("{}\t{}\t|{}|n({},{})\t{}\t{:?}",
                      binary_digits, decimal_digits, description, i, k, p, divisors);
         } else if args.debug {
             if _tests > &0 {
-                eprintln!("Nested prime p({},{},{}) is composite", i, j, k);
+                println!("Nested number n({},{}) is composite", i, k);
             }  else {
             }
         }
@@ -380,20 +402,15 @@ fn main() {
     let mut total_tests = 0;
     let mut expected_tests = 0;
 
-    let mut seen = HashMap::<BigUint, bool>::new();
+    println!("binary_digits\tdecimal_digits\tdescription\tprobable_prime\tdivisors_used");
     for (i, _j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict || !running.load(Ordering::SeqCst)
             || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
             //numbers_tested_total += tests;
             let binary_digits = p.to_str_radix(2).len();
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
-            if !seen.contains_key(&p) || args.duplicates {
-                let decimal_digits = p.to_str_radix(10).len();
-                println!("{}\t{}\t|{}|n({},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, k, p, divisors);
-                if !args.duplicates {
-                    seen.insert(p, true);
-                }
-            }
+            let decimal_digits = p.to_str_radix(10).len();
+            println!("{}\t{}\t|{}|n({},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, k, p, divisors);
             prime_count += 1;
             expected_tests += average_tests;
         }

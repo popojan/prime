@@ -9,22 +9,21 @@ Program generates big (strongly probable) primes fast.
 ```
 Program to generate big (strongly probable) primes fast
 
-Usage: prime [OPTIONS] [NESTING_LEVEL] [BASE_FROM] [BASE_TO]
+Usage: prime [OPTIONS] [NESTING_LEVEL] [BASE_FROM] [BASE_COUNT]
 
 Arguments:
   [NESTING_LEVEL]  Nesting level (default: 3)
-  [BASE_FROM]      Nesting initial number - lower bound (default: 1)
-  [BASE_TO]        Nesting initial number - upper bound (default: 100)
+  [BASE_FROM]      Nesting initial number (default: 1)
+  [BASE_COUNT]     Number of consecutive numbers to test (default: 100)
 
 Options:
   -d, --divisors <DIVISORS>  Order of the highest precalculated divisor prime [default: 1000]
       --descending           Start generating from bigger primes to smaller
       --sort-by-fragment     Sorts resulting primes by underlying DNA fragment
   -e, --extra-tests          Perform extra tests (k-tuples, Cunningham)
-      --verbose              Immediately output probable primes to stderr, possibly duplicated
+      --verbose              Immediately output probable primes to stderr
       --debug                Print debug information related to each tested span to stderr
-      --final-strict         Perform final strict probable primality test on deduplicated primes
-      --duplicates           Do not deduplicate resulting primes
+      --final-strict         Perform final strict probable primality test
       --allow-divided        Allow testing candidates divided by small precalculated divisors
   -h, --help                 Print help
   -V, --version              Print version
@@ -32,7 +31,8 @@ Options:
 
 Timing on a personal laptop:
 ```
-$ time ./prime 7 100 200
+$ time ./prime 7 100 100
+binary_digits   decimal_digits  description     probable_prime  divisors_used
 1006    303     |prime|n(115,7) 347769611807825674539085949181139152371599461793101740952318328609297623662367571886029733443964578893627363046320741979312780192235435758012299226404996986368837766237056973225731757234493118064451550238958034157626171504377547928487562277794425815682981219426797645308398814948596444383872029779082239        []
 1036    312     |prime|n(136,7) 673089671133593883160810749508062370777531596625450377940570746404512139105344100298708993405107718797343016071179101291085045240467919069697370161666838580640602044648188541870600420964439582770900101136470274420261913099122829135148554889253064426183186696582084931590825432225042776055985183982808993052182527       []
 1044    315     |prime|n(142,7) 165751580032335844096748613107814594862210698253690282011340273311470763577875329707592722030370654224514777282228110383011484691668440742531878720824365024687561414942308790426142319357334621229431116529692049338277989449217228881380311212573872346050953921324901936053066833577541186548806190162228203034278230527    []
@@ -45,9 +45,10 @@ sys     0m0.059s
 ```
 
 It's deterministic, you can always find the same primes later using the same command-line arguments or even faster thanks
-to the descriptions given, e.g. first of the three primes above given `n(115,7)`: 
+to the descriptions given, e.g. first of the four primes above given `n(115,7)`: 
 ```
-$ time ./prime 7 115 116
+$ time ./prime 7 115 1
+binary_digits   decimal_digits  description     probable_prime  divisors_used
 1006    303     |prime|n(115,7) 347769611807825674539085949181139152371599461793101740952318328609297623662367571886029733443964578893627363046320741979312780192235435758012299226404996986368837766237056973225731757234493118064451550238958034157626171504377547928487562277794425815682981219426797645308398814948596444383872029779082239        []
 Found 1 probable primes using 1 tests compared to 698 expected tests. Speed-up 698.0×.
 

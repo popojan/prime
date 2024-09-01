@@ -12,6 +12,7 @@ num-traits = "0.2.19"
 rayon = "1.10.0"
 clap = { version = "4.5.16", features = ["derive"] }
 ctrlc-async = {version = "3.2.2", features = ["termination"]}
+indicatif = { version = "0.17.8", features = ["rayon"]}
 
 [profile.release]
 panic = "abort"
