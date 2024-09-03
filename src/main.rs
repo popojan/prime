@@ -11,6 +11,7 @@ use indicatif::ParallelProgressIterator;
 use indicatif::{ProgressBar, ProgressStyle};
 
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Shl, Shr, Sub};
+use std::time::{SystemTime, UNIX_EPOCH};
 use num_bigint::{BigUint, BigInt, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
@@ -90,7 +91,7 @@ fn myreduce(n:usize, ap:&BigUint, a: &[BigUint]) -> (BigUint, Vec<BigUint>) {
     return (accum, divisors);
 }
 
-fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
+fn cunningham_1st(exact: &BigUint) -> (usize, usize, usize) {
     let zero= BigUint::zero();
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
@@ -112,10 +113,22 @@ fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
         }
         dnext = cnextnext.clone();
     }
-    return (tests, seq);
+    let el = seq;
+    dnext = exact.clone();
+    loop {
+        let cnextnext = dnext.clone().mul(&two).add(&one);
+        tests += 1;
+        if is_prime(&cnextnext, None).probably() {
+            seq += 1;
+        } else {
+            break;
+        }
+        dnext = cnextnext.clone();
+    }
+    return (tests, seq, el);
 }
 
-fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
+fn cunningham_2nd(exact: &BigUint) -> (usize, usize, usize) {
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
     let mut seq = 1;
@@ -136,34 +149,60 @@ fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
         }
         dnext = cnextnext.clone();
     }
-    return (tests, seq);
+    let el = seq;
+    dnext = exact.clone();
+    loop {
+        let cnextnext = dnext.clone().mul(&two).sub(&one);
+        tests += 1;
+        if is_prime(&cnextnext, None).probably() {
+            seq += 1;
+        } else {
+            break;
+        }
+        dnext = cnextnext.clone();
+    }
+    return (tests, seq, el);
 }
 
-fn k_tuple(exact: &BigUint) -> (usize, usize) {
+fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
     let two = BigUint::from(2_u64);
     let six = BigUint::from(6_u64);
     let eight =  BigUint::from(8_u64);
     let four = BigUint::from(4_u64);
     let twelve = BigUint::from(12_u64);
+    let diffs = [two, six, eight, four, twelve];
     let mut seq = 1;
+    let mut el = 1;
     let mut tests = 0;
-    tests += 1;
-    if is_prime(&exact.clone().add(&two), None).probably() {
-        seq += 1;
-        if is_prime(&exact.clone().add(&six), None).probably() {
-            seq += 1;
-            if is_prime(&exact.clone().add(&eight), None).probably() {
-                seq += 1;
-                if is_prime(&exact.clone().sub(&four), None).probably() {
-                    seq += 1;
-                    if is_prime(&exact.clone().add(&twelve), None).probably() {
-                        seq += 1;
-                    }
-                }
+    'outer: for i in 0..diffs.len() {
+        let mut nseq = 1;
+        let nel = i+1;
+        let mut off = BigUint::zero();
+        for j in (0..i).rev() {
+            tests += 1;
+            off.add_assign(&diffs[j]);
+            if off.lt(exact) && is_prime(&exact.clone().sub(&off),None).probably() {
+                nseq += 1;
+            } else {
+                continue 'outer;
             }
         }
+        off = BigUint::zero();
+        'inner: for j in i..diffs.len() {
+            tests += 1;
+            off.add_assign(&diffs[j]);
+            if is_prime(&exact.clone().add(&off),None).probably() {
+                nseq += 1;
+            } else {
+                break 'inner;
+            }
+        }
+        if nseq > seq && nseq >= nel {
+            seq = nseq;
+            el = nel;
+        }
     }
-    return (tests, seq);
+    return (tests, seq, el);
 }
 
 fn _bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args, extra_tests: bool) -> usize {
@@ -196,21 +235,21 @@ fn _bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String
                     let mut description = vec!["prime".to_string()];
 
                     if extra_tests {
-                        let (_tests, arity_1st) = cunningham_1st(&exact);
+                        let (_tests, arity_1st, cunn_1st_el) = cunningham_1st(&exact);
                         tests += _tests;
-                        let (_tests, arity_2nd) = cunningham_2nd(&exact);
+                        let (_tests, arity_2nd, cunn_2nd_el) = cunningham_2nd(&exact);
                         tests += _tests;
-                        let (_tests, arity_k_tuple) = k_tuple(&exact);
+                        let (_tests, arity_k_tuple, k_tuple_el) = k_tuple(&exact);
                         tests += _tests;
 
                         if arity_1st > 1 {
-                            description.push(format!("cunn:1st_{}", arity_1st));
+                            description.push(format!("cunn:1st_{}({})", arity_1st, cunn_1st_el));
                         }
                         if arity_2nd > 1 {
-                            description.push(format!("cunn:2nd_{}", arity_2nd));
+                            description.push(format!("cunn:2nd_{}({})", arity_2nd, cunn_2nd_el));
                         }
                         if arity_k_tuple > 1 {
-                            description.push(format!("ktuple_{}", arity_k_tuple));
+                            description.push(format!("ktuple_{}({})", arity_k_tuple, k_tuple_el));
                         }
                     }
                     b.push((tests, description.join("|"), exact.clone(), divisors));
@@ -259,12 +298,13 @@ fn nested_prime(aa: &Vec<BigUint>, n: &BigInt, k: usize, ret: &mut Vec<(usize, S
     let mut a: BigInt = n.sub(&BigInt::one()).shr(1);
     let mut b: BigInt = n.add(&BigInt::one()).shr(1);
     for _i in 0..k {
-        let na = a.clone().mul(&b).shl(1) - a.clone().sub(&b).abs();
-        let nb = (a.clone().mul(&a).add(b.clone().mul(&b)).sub(&BigInt::one())).div(a.clone().sub(&b).abs());
+        let na: BigInt = a.clone().mul(&b).shl(1) - a.clone().sub(&b).abs();
+        let nb = na.clone().add(&BigInt::one());
+        //let nb = (a.clone().mul(&a).add(b.clone().mul(&b)).sub(&BigInt::one())).div(a.clone().sub(&b).abs());
         a = na;
         b = nb;
     }
-    let pp: BigUint = a.add(&b).to_biguint().unwrap();
+    let pp: BigUint = a.add(&b).abs().to_biguint().unwrap();
     let (exact, divisors) = if args.allow_divided {
         myreduce(args.divisors, &pp, &aa)
     } else {
@@ -278,21 +318,21 @@ fn nested_prime(aa: &Vec<BigUint>, n: &BigInt, k: usize, ret: &mut Vec<(usize, S
         let mut description = vec!["prime".to_string()];
 
         if args.extra_tests {
-            let (_tests, arity_1st) = cunningham_1st(&exact);
+            let (_tests, arity_1st, cunn_1st_el) = cunningham_1st(&exact);
             tests += _tests;
-            let (_tests, arity_2nd) = cunningham_2nd(&exact);
+            let (_tests, arity_2nd, cunn_2nd_el) = cunningham_2nd(&exact);
             tests += _tests;
-            let (_tests, arity_k_tuple) = k_tuple(&exact);
+            let (_tests, arity_k_tuple, k_tuple_el) = k_tuple(&exact);
             tests += _tests;
 
             if arity_1st > 1 {
-                description.push(format!("cunn:1st_{}", arity_1st));
+                description.push(format!("cunn:1st_{}({})", arity_1st, cunn_1st_el));
             }
             if arity_2nd > 1 {
-                description.push(format!("cunn:2nd_{}", arity_2nd));
+                description.push(format!("cunn:2nd_{}({})", arity_2nd, cunn_2nd_el));
             }
             if arity_k_tuple > 1 {
-                description.push(format!("ktuple_{}", arity_k_tuple));
+                description.push(format!("ktuple_{}({})", arity_k_tuple, k_tuple_el));
             }
         }
         ret.push((tests, description.join("|"), exact.clone(), divisors));
@@ -304,6 +344,7 @@ fn nested_prime(aa: &Vec<BigUint>, n: &BigInt, k: usize, ret: &mut Vec<(usize, S
 fn main() {
     let args = Args::parse();
 
+    let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 
     let kk: u64 = args.nesting_level.unwrap_or(3_u64);
     let base_from = args.base_from.clone().unwrap_or("1".to_string());
@@ -401,6 +442,7 @@ fn main() {
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
+    let mut total_score = 0.0;
 
     println!("binary_digits\tdecimal_digits\tdescription\tprobable_prime\tdivisors_used");
     for (i, _j, k, tests, description, p, divisors) in probable_primes {
@@ -413,10 +455,17 @@ fn main() {
             println!("{}\t{}\t|{}|n({},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, k, p, divisors);
             prime_count += 1;
             expected_tests += average_tests;
+            total_score += (average_tests as f64).powf(3.0) * (average_tests as f64).ln();
         }
         total_tests += tests;
     }
+
     eprintln!("Found {} probable primes using {} tests compared to {} expected tests. Speed-up {:.1}×.",
               prime_count, total_tests, expected_tests, (expected_tests as f64)/(total_tests as f64));
+
+    let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+    eprintln!("Time: {:?}  Log Score: {:.4}  Log Score per sec: {:.4}", end - start, total_score.ln(), (total_score / (end -start).as_secs_f64()).ln());
+
     return;
 }
