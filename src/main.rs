@@ -5,9 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Sub};
-use num_bigint::{BigUint, ToBigUint};
+use std::time::{SystemTime, UNIX_EPOCH};
+use num_bigint::{BigUint, BigInt, ToBigInt, ToBigUint};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
+use indicatif::ParallelProgressIterator;
+use indicatif::{ProgressBar, ProgressStyle};
+
 use rayon::prelude::*;
 
 use num_prime::nt_funcs::{is_prime, primes, nth_prime};
@@ -67,11 +71,11 @@ struct Args {
     #[clap(long, value_parser, default_value_t = false)]
     duplicates: bool,
 
-    /// Minimum successive primes used (DNA fragment length, binary digits minus one)
+    /// Minimum successive primes used (DNA fragment length, binary digits plus one)
     #[clap()]
     min_binary_digits: Option<usize>,
 
-    /// Maximum successive primes used (DNA fragment length, binary digits minus one) [default: same as minimum]
+    /// Maximum successive primes used (DNA fragment length, binary digits plus one) [default: same as minimum]
     #[clap()]
     max_binary_digits: Option<usize>,
 
@@ -96,7 +100,7 @@ fn myreduce(n:usize, ap:&BigUint, a: &[BigUint]) -> (BigUint, Vec<BigUint>) {
     return (accum, divisors);
 }
 
-fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
+fn cunningham_1st(exact: &BigUint) -> (usize, usize, usize) {
     let zero= BigUint::zero();
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
@@ -118,10 +122,22 @@ fn cunningham_1st(exact: &BigUint) -> (usize, usize) {
         }
         dnext = cnextnext.clone();
     }
-    return (tests, seq);
+    let el = seq;
+    dnext = exact.clone();
+    loop {
+        let cnextnext = dnext.clone().mul(&two).add(&one);
+        tests += 1;
+        if is_prime(&cnextnext, None).probably() {
+            seq += 1;
+        } else {
+            break;
+        }
+        dnext = cnextnext.clone();
+    }
+    return (tests, seq, el);
 }
 
-fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
+fn cunningham_2nd(exact: &BigUint) -> (usize, usize, usize) {
     let one= BigUint::one();
     let two = BigUint::from(2_u64);
     let mut seq = 1;
@@ -142,34 +158,64 @@ fn cunningham_2nd(exact: &BigUint) -> (usize, usize) {
         }
         dnext = cnextnext.clone();
     }
-    return (tests, seq);
+    let el = seq;
+    dnext = exact.clone();
+    loop {
+        let cnextnext = dnext.clone().mul(&two).sub(&one);
+        tests += 1;
+        if is_prime(&cnextnext, None).probably() {
+            seq += 1;
+        } else {
+            break;
+        }
+        dnext = cnextnext.clone();
+    }
+    return (tests, seq, el);
 }
 
-fn k_tuple(exact: &BigUint) -> (usize, usize) {
-    let two = BigUint::from(2_u64);
-    let six = BigUint::from(6_u64);
-    let eight =  BigUint::from(8_u64);
-    let four = BigUint::from(4_u64);
-    let twelve = BigUint::from(12_u64);
+fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
+    let two = BigInt::from(2_u64);
+    let four = BigInt::from(4_u64);
+
+    let diffs = [four.clone(), two.clone(), four.clone(), two.clone(), four.clone()];
     let mut seq = 1;
+    let mut el = 1_usize;
     let mut tests = 0;
-    tests += 1;
-    if is_prime(&exact.clone().add(&two), None).probably() {
-        seq += 1;
-        if is_prime(&exact.clone().add(&six), None).probably() {
-            seq += 1;
-            if is_prime(&exact.clone().add(&eight), None).probably() {
-                seq += 1;
-                if is_prime(&exact.clone().sub(&four), None).probably() {
-                    seq += 1;
-                    if is_prime(&exact.clone().add(&twelve), None).probably() {
-                        seq += 1;
-                    }
-                }
+    for i in 1..diffs.len()+1 {
+        let mut off = BigInt::zero();
+        let mut minj = i;
+        for j in (0..i).rev() {
+            tests += 1;
+            off.add_assign(&diffs[j]);
+            if off.lt(&exact.to_bigint().unwrap()) && is_prime(
+                &exact.to_bigint().unwrap().sub(&off).to_biguint().unwrap(),None).probably() {
+                minj = j;
+            } else {
+                break;
+            }
+        }
+        off = BigInt::zero();
+        let mut maxj = i;
+        for j in i..diffs.len() {
+            tests += 1;
+            off.add_assign(&diffs[j]);
+            if is_prime(&exact.to_bigint().unwrap().add(&off).to_biguint().unwrap(),None).probably() {
+                maxj = j;
+            } else {
+                break;
+            }
+        }
+        if maxj - minj + 1 > seq {
+            if maxj >= 1 && maxj < 3 && minj <= 1 {
+                seq = maxj;
+                el = i;
+            } else if maxj >= 3 && minj <= 1 {
+                seq = maxj - minj + 1;
+                el = i - minj + 1;
             }
         }
     }
-    return (tests, seq);
+    return (tests, seq, el);
 }
 
 fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args, extra_tests: bool) -> usize {
@@ -202,21 +248,21 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
                     let mut description = vec!["prime".to_string()];
 
                     if extra_tests {
-                        let (_tests, arity_1st) = cunningham_1st(&exact);
+                        let (_tests, arity_1st, cunn_1st_el) = cunningham_1st(&exact);
                         tests += _tests;
-                        let (_tests, arity_2nd) = cunningham_2nd(&exact);
+                        let (_tests, arity_2nd, cunn_2nd_el) = cunningham_2nd(&exact);
                         tests += _tests;
-                        let (_tests, arity_k_tuple) = k_tuple(&exact);
+                        let (_tests, arity_k_tuple, k_tuple_el) = k_tuple(&exact);
                         tests += _tests;
 
                         if arity_1st > 1 {
-                            description.push(format!("cunn:1st_{}", arity_1st));
+                            description.push(format!("cunn:1st_{}({})", arity_1st, cunn_1st_el));
                         }
                         if arity_2nd > 1 {
-                            description.push(format!("cunn:2nd_{}", arity_2nd));
+                            description.push(format!("cunn:2nd_{}({})", arity_2nd, cunn_2nd_el));
                         }
                         if arity_k_tuple > 1 {
-                            description.push(format!("ktuple_{}", arity_k_tuple));
+                            description.push(format!("ktuple_{}({})", arity_k_tuple, k_tuple_el));
                         }
                     }
                     b.push((tests, description.join("|"), exact.clone(), divisors));
@@ -255,7 +301,7 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
         }
         last = p;
     }
-    if first_zero || trailing_zeros > 0 {
+    if first_zero  || trailing_zeros > 0 {
         return false;
     }
     return true;
@@ -264,8 +310,10 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
 fn main() {
     let args = Args::parse();
 
-    let min_kn = args.min_binary_digits.unwrap_or(args.to.unwrap_or(args.from + 100) - args.from);
-    let max_kn = args.max_binary_digits.unwrap_or(min_kn) ;
+    let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+    let min_kn = args.min_binary_digits.unwrap_or(args.to.unwrap_or(args.from + 100) - args.from );
+    let max_kn = args.max_binary_digits.unwrap_or(min_kn);
     let lo = args.from;
     let hi = args.to.unwrap_or(max_kn * 10 + lo);
     let asc = !args.descending;
@@ -297,10 +345,17 @@ fn main() {
         eprintln!("Ctrl+C handler called!");
     }).expect("Error setting Ctrl-C handler");
 
+    let pbr = ProgressBar::new(indices.len().try_into().unwrap()).with_style(
+        ProgressStyle::with_template(
+            "{msg} {wide_bar} {pos}/{len} {elapsed}/{duration} [{binary_bytes_per_sec}]",
+        )
+        .unwrap(),
+    );
+
     let mut probable_primes = indices.into_par_iter()
     .inspect(|(i, j, k,_extra)| {
         if args.debug {
-            eprintln!("Testing span p({},{},{})... ", i, j, k);
+            println!("Testing span p({},{},{})... ", i, j, k);
         }
     })
         .map(|(i, j, k, extra)| {
@@ -312,22 +367,24 @@ fn main() {
         };
         if b.len() > 0 {
             let tup = b.first().unwrap();
+            pbr.set_message(format!("Found p({},{},{})!", i, j, k));
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
         } else {
             (i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
         }
     })
+    .progress_with(pbr.clone())
     .inspect(|(i, j, k, _tests, description, p, divisors)| {
         if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            eprintln!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}",
+            println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}",
                      binary_digits, decimal_digits, description, i,j, k, p, divisors);
         } else if args.debug {
             if _tests > &0 {
-                eprintln!("Span prime p({},{},{}) is composite", i, j, k);
+                println!("Span prime p({},{},{}) is composite", i, j, k);
             }  else {
-                eprintln!("Span p({},{},{}) span starts or ends with zero", i, j, k);
+                println!("Span p({},{},{}) span starts or ends with zero", i, j, k);
             }
         }
     })
@@ -348,6 +405,9 @@ fn main() {
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
+    let mut total_score = 0.0;
+
+    pbr.finish_and_clear();
 
     let mut seen = HashMap::<BigUint, bool>::new();
     for (i, j, k, tests, description, p, divisors) in probable_primes {
@@ -362,13 +422,19 @@ fn main() {
                 if !args.duplicates {
                     seen.insert(p, true);
                 }
+                total_score += (average_tests as f64).powf(3.0) * (average_tests as f64).ln();
+                prime_count += 1;
+                expected_tests += average_tests;
             }
-            prime_count += 1;
-            expected_tests += average_tests;
         }
         total_tests += tests;
     }
     eprintln!("Found {} probable primes using {} tests compared to {} expected tests. Speed-up {:.1}×.",
               prime_count, total_tests, expected_tests, (expected_tests as f64)/(total_tests as f64));
+
+    let end = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+    eprintln!("Time: {:?}  Log Score: {:.4}  Log Score per sec: {:.4}", end - start, total_score.ln(), (total_score / (end -start).as_secs_f64()).ln());
+
     return;
 }
