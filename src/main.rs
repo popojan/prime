@@ -409,6 +409,7 @@ fn main() {
 
     pbr.finish_and_clear();
 
+    println!("binary_digits\tdecimal_digits\tdescription\tprobable_prime\tdivisors_used");
     let mut seen = HashMap::<BigUint, bool>::new();
     for (i, j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict
