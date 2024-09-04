@@ -447,6 +447,8 @@ fn main() {
     })
     .collect::<Vec<(BigInt, BigInt, u64, usize, String, BigUint, Vec<BigUint>)>>();
 
+    pbr.finish_and_clear();
+
     let mut prime_count = 0;
     let mut total_tests = 0;
     let mut expected_tests = 0;
