@@ -12,7 +12,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Shl, Shr, Sub};
 use std::time::{SystemTime, UNIX_EPOCH};
-use num_bigint::{BigUint, BigInt, ToBigUint};
+use num_bigint::{BigUint, BigInt, ToBigUint, ToBigInt};
 use num_traits::identities::One;
 use num_traits::identities::Zero;
 use num_traits::{Signed, ToPrimitive};
@@ -165,41 +165,45 @@ fn cunningham_2nd(exact: &BigUint) -> (usize, usize, usize) {
 }
 
 fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
-    let two = BigUint::from(2_u64);
-    let six = BigUint::from(6_u64);
-    let eight =  BigUint::from(8_u64);
-    let four = BigUint::from(4_u64);
-    let twelve = BigUint::from(12_u64);
-    let diffs = [two, six, eight, four, twelve];
+    let two = BigInt::from(2_u64);
+    let four = BigInt::from(4_u64);
+
+    let diffs = [four.clone(), two.clone(), four.clone(), two.clone(), four.clone()];
     let mut seq = 1;
-    let mut el = 1;
+    let mut el = 1_usize;
     let mut tests = 0;
-    'outer: for i in 0..diffs.len() {
-        let mut nseq = 1;
-        let nel = i+1;
-        let mut off = BigUint::zero();
+    for i in 1..diffs.len()+1 {
+        let mut off = BigInt::zero();
+        let mut minj = i;
         for j in (0..i).rev() {
             tests += 1;
             off.add_assign(&diffs[j]);
-            if off.lt(exact) && is_prime(&exact.clone().sub(&off),None).probably() {
-                nseq += 1;
+            if off.lt(&exact.to_bigint().unwrap()) && is_prime(
+                &exact.to_bigint().unwrap().sub(&off).to_biguint().unwrap(),None).probably() {
+                minj = j;
             } else {
-                continue 'outer;
+                break;
             }
         }
-        off = BigUint::zero();
-        'inner: for j in i..diffs.len() {
+        off = BigInt::zero();
+        let mut maxj = i;
+        for j in i..diffs.len() {
             tests += 1;
             off.add_assign(&diffs[j]);
-            if is_prime(&exact.clone().add(&off),None).probably() {
-                nseq += 1;
+            if is_prime(&exact.to_bigint().unwrap().add(&off).to_biguint().unwrap(),None).probably() {
+                maxj = j;
             } else {
-                break 'inner;
+                break;
             }
         }
-        if nseq > seq && nseq >= nel {
-            seq = nseq;
-            el = nel;
+        if maxj - minj + 1 > seq {
+            if maxj >= 1 && maxj < 3 && minj <= 1 {
+                seq = maxj;
+                el = i;
+            } else if maxj >= 3 && minj <= 1 {
+                seq = maxj - minj + 1;
+                el = i - minj + 1;
+            }
         }
     }
     return (tests, seq, el);
@@ -418,7 +422,11 @@ fn main() {
         };
         if b.len() > 0 {
             let tup = b.first().unwrap();
-            pbr.set_message(format!("Found n({}, {})!", i, k));
+            let mut num = i.to_string();
+            if num.len() > 12 {
+                num = format!("{}..{}", num[0..3].to_string(), num[(num.len()-3)..num.len()].to_string());
+            }
+            pbr.set_message(format!("Found n({},{})!", num, k));
             (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
         } else {
             (i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
