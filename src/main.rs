@@ -408,7 +408,7 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
-    ctrlc_async::set_handler(move || {
+    ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
         eprintln!("Ctrl+C handler called!");
     }).expect("Error setting Ctrl-C handler");
