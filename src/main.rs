@@ -181,14 +181,22 @@ fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
     let mut seq = 1;
     let mut el = 1_usize;
     let mut tests = 0;
+    let mut seen = HashMap::<BigUint, bool>::new();
     for i in 0..diffs.len()+1 {
         let mut off = BigInt::zero();
         let mut minj = i;
         for j in (0..i).rev() {
-            tests += 1;
             off.add_assign(&diffs[j]);
-            if off.lt(&exact.to_bigint().unwrap()) && is_prime(
-                &exact.to_bigint().unwrap().sub(&off).to_biguint().unwrap(),None).probably() {
+            let num = exact.to_bigint().unwrap().sub(&off).to_biguint().unwrap();
+            let is_prime = if seen.contains_key(&num) {
+                seen[&num]
+            } else {
+                let ret = is_prime(&num,None).probably();
+                tests += 1;
+                seen.insert(num, ret);
+                ret
+            };
+            if off.lt(&exact.to_bigint().unwrap()) && is_prime {
                 minj = j;
             } else {
                 break;
@@ -197,9 +205,17 @@ fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
         off = BigInt::zero();
         let mut maxj = i;
         for j in i..diffs.len() {
-            tests += 1;
             off.add_assign(&diffs[j]);
-            if is_prime(&exact.to_bigint().unwrap().add(&off).to_biguint().unwrap(),None).probably() {
+            let num = exact.to_bigint().unwrap().add(&off).to_biguint().unwrap();
+            let is_prime = if seen.contains_key(&num) {
+                seen[&num]
+            } else {
+                let ret = is_prime(&num,None).probably();
+                tests += 1;
+                seen.insert(num, ret);
+                ret
+            };
+            if is_prime {
                 maxj = j + 1;
             } else {
                 break;
@@ -207,7 +223,7 @@ fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
         }
         if maxj > seq && maxj >= 1 && maxj < 3 && minj <= 1 {
             seq = maxj;
-            el = i;
+            el = 1;
         } else if maxj >= 3 && minj <= 1 {
             let nseq = if minj < 1 {maxj + 1} else {maxj};
             if nseq > seq {
