@@ -1,0 +1,6 @@
+.idea
+results/
+target/
+Cargo.lock
+*.csv
+*.txt
