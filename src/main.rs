@@ -1,7 +1,7 @@
 extern crate core;
 
 
-use std::ops::{Add, AddAssign, Div, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, MulAssign, Shl, Sub, SubAssign};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,19 +20,19 @@ use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Add extra power of two
-    #[clap(short, long, value_parser, default_value_t = 1000)]
+    /// Maximum steps for each power
+    #[clap(short, long, value_parser, default_value_t = 3)]
     max_steps: usize,
 
-    /// Immediately output probable primes to stderr, possibly duplicated
+    /// Immediately output probable primes to stdout, possibly duplicated
     #[clap(long, value_parser, default_value_t = false)]
     verbose: bool,
 
-    /// Seed from
+    /// Power from
     #[clap()]
     from: Option<usize>,
 
-    /// Seed to
+    /// Power to
     #[clap()]
     to: Option<usize>,
 }
@@ -75,8 +75,8 @@ fn _big_zero_twins(odd_w: BigUint, zero_count: usize) -> ((bool, BigUint), (bool
 }
 
 fn big_fast_twins(k: usize, third: bool, max_steps: usize) -> (isize, (bool, BigUint), (bool, BigUint), BigUint, usize) {
-    let a = BigUint::from(2_usize).pow(k);
-    let b = BigUint::from(2_usize).pow(k+1);
+    let a = BigUint::from(1_usize).shl(k);
+    let b = BigUint::from(1_usize).shl(k+1);
     let p00 = a.clone().add(
          if third {
             b.sub(&a)
@@ -176,13 +176,15 @@ fn main() {
         eprintln!("Ctrl+C handler called!");
     }).expect("Error setting Ctrl-C handler");
 
-    let mut ret = indices.into_par_iter().flat_map(|(k, third)| {
+    let mut ret = indices.into_par_iter()
+    .progress_with(pbr.clone())
+    .flat_map(|(k, third)| {
         if running.load(Ordering::SeqCst) {
-            vec![(k, third, big_fast_twins(k, third, args.max_steps))]
+            vec![(k, third, big_fast_twins(k, third, args.max_steps.max(1)))]
         } else {
             vec![]
         }
-    }).progress_with(pbr.clone())
+    })
     .inspect(|(k, third, res)| {
         let decimal_digits = res.1.1.to_str_radix(10).len();
         if args.verbose && res.1.0 && res.2.0 {
@@ -195,6 +197,7 @@ fn main() {
 
     ret.sort_by(|(_k1, _t1, a), (_k2, _t2, b) | a.1.1.partial_cmp(&b.1.1).unwrap());
 
+    println!("decimal_digits\tsteps\tthird\tstep_diff\tprimality\t0\tpower\ttwin_prime");
     for (k, third, res) in ret {
         if res.1.0 && res.2.0 {
             let decimal_digits = res.1.1.to_str_radix(10).len();
