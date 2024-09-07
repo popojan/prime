@@ -2,6 +2,8 @@ extern crate core;
 
 
 use std::ops::{Add, AddAssign, Div, MulAssign, Sub, SubAssign};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
@@ -166,8 +168,20 @@ fn main() {
         ).unwrap(),
     );
 
-    let mut ret = indices.into_par_iter().map(|(k, third)| {
-        (k, third, big_fast_twins( k, third, args.max_steps))
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+        eprintln!("Ctrl+C handler called!");
+    }).expect("Error setting Ctrl-C handler");
+
+    let mut ret = indices.into_par_iter().flat_map(|(k, third)| {
+        if running.load(Ordering::SeqCst) {
+            vec![(k, third, big_fast_twins(k, third, args.max_steps))]
+        } else {
+            vec![]
+        }
     }).progress_with(pbr.clone())
     .inspect(|(k, third, res)| {
         let decimal_digits = res.1.1.to_str_radix(10).len();

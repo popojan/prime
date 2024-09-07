@@ -13,6 +13,7 @@ rayon = "1.10.0"
 clap = { version = "4.5.17", features = ["derive"] }
 rand = "0.8.5"
 indicatif = { version = "0.17.8", features = ["rayon"] }
+ctrlc = "3.4.5"
 
 [profile.release]
 panic = "abort"
