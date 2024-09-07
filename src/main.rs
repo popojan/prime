@@ -215,7 +215,7 @@ fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
         }
         if maxj > seq && maxj >= 1 && maxj < 3 && minj <= 1 {
             seq = maxj;
-            el = 1;
+            el = if minj < 1 { i + 1 } else { i };
         } else if maxj >= 3 && minj <= 1 {
             let nseq = if minj < 1 {maxj + 1} else {maxj};
             if nseq > seq {
