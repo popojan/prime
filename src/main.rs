@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Rem, Sub};
+use std::ops::{Add, AddAssign, MulAssign, Div, DivAssign, Mul, Rem, Sub};
 use std::time::{SystemTime, UNIX_EPOCH};
 use num_bigint::{BigUint, BigInt, ToBigInt, ToBigUint};
 use num_traits::identities::One;
@@ -36,7 +36,7 @@ struct Args {
     to: Option<usize>,
 
     /// Order of the highest precalculated divisor prime
-    #[clap(short, long, value_parser, default_value_t = 1000)]
+    #[clap(short, long, value_parser, default_value_t = 100)]
     divisors: usize,
 
     /// Start generating from bigger primes to smaller
@@ -237,54 +237,47 @@ fn bigprime(dna: &Vec<BigUint>, a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut
         return 0;
     }
     let zero= BigUint::zero();
-    let one= BigUint::one();
-    let two = BigUint::from(2_u64);//.pow(k as u32);
-    //let mut last = &a[i];
+    let two = BigUint::from(2_u64);
     let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
     let mut digit = BigUint::from(1_u64);
     for  add in &dna[i+1..j] {
-        //let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
-        accum = accum.add(digit.clone().mul(add));
-        digit = digit.mul(&two);
-        //last = p;
+        if add.gt(&zero) {
+            accum = accum.add(&digit);
+        }
+        digit.mul_assign(&two);
     }
     let mut tests = 0;
     if accum.gt(&two) {
-        if  accum > zero && accum != one {
-            if accum.clone().rem(&two).is_zero() {
-                accum.add_assign(&one);
-            }
-            let (exact, divisors) = if true /*args.allow_divided*/ {
-                myreduce(args.divisors, &accum, &a)
-            } else {
-                (accum, vec![])
-            };
-            if args.allow_divided || divisors.is_empty() {
-                tests = 1;
-                if is_prime(&exact, None).probably() {
-                    let mut description = vec!["prime".to_string()];
+        let (exact, divisors) = if true {
+            myreduce(args.divisors, &accum, &a)
+        } else {
+            (accum, vec![])
+        };
+        if args.allow_divided || divisors.is_empty() {
+            tests = 1;
+            if is_prime(&exact, None).probably() {
+                let mut description = vec!["prime".to_string()];
 
-                    if extra_tests {
-                        let (_tests, arity_1st, cunn_1st_el) = cunningham_1st(&exact);
-                        tests += _tests;
-                        let (_tests, arity_2nd, cunn_2nd_el) = cunningham_2nd(&exact);
-                        tests += _tests;
-                        let (_tests, arity_k_tuple, k_tuple_el) = k_tuple(&exact);
-                        tests += _tests;
+                if extra_tests {
+                    let (_tests, arity_1st, cunn_1st_el) = cunningham_1st(&exact);
+                    tests += _tests;
+                    let (_tests, arity_2nd, cunn_2nd_el) = cunningham_2nd(&exact);
+                    tests += _tests;
+                    let (_tests, arity_k_tuple, k_tuple_el) = k_tuple(&exact);
+                    tests += _tests;
 
-                        if arity_1st > 1 {
-                            description.push(format!("cunn:1st_{}({})", arity_1st, cunn_1st_el));
-                        }
-                        if arity_2nd > 1 {
-                            description.push(format!("cunn:2nd_{}({})", arity_2nd, cunn_2nd_el));
-                        }
-                        if arity_k_tuple > 1 {
-                            description.push(format!("ktuple_{}({})", arity_k_tuple, k_tuple_el));
-                        }
+                    if arity_1st > 1 {
+                        description.push(format!("cunn:1st_{}({})", arity_1st, cunn_1st_el));
                     }
-                    b.push((tests, description.join("|"), exact.clone(), divisors));
-                    tests = 0;
+                    if arity_2nd > 1 {
+                        description.push(format!("cunn:2nd_{}({})", arity_2nd, cunn_2nd_el));
+                    }
+                    if arity_k_tuple > 1 {
+                        description.push(format!("ktuple_{}({})", arity_k_tuple, k_tuple_el));
+                    }
                 }
+                b.push((tests, description.join("|"), exact.clone(), divisors));
+                tests = 0;
             }
         }
     }
@@ -301,7 +294,6 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
     let mut _leading_zeros = 0;
     let mut first = true;
     for  add in &a[i+1..j] {
-        //let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
         if !first {
             if *add == zero {
                 if leading {
@@ -316,7 +308,6 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
             first = false;
             first_zero = *add == zero;
         }
-        //last = p;
     }
     if first_zero  || trailing_zeros > 0 {
         return false;
