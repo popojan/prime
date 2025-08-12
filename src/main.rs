@@ -48,7 +48,7 @@ struct Args {
     sort_by_fragment: bool,
 
     /// Add an extra power of two
-    #[clap(short, long, value_parser, default_value_t = -1)]
+    #[clap(short, long, value_parser, default_value_t = 1)]
     power_2: i64,
 
     /// Perform extra tests (k-tuples, Cunningham)
@@ -232,21 +232,21 @@ fn k_tuple(exact: &BigUint) -> (usize, usize, usize) {
     return (tests, seq, el);
 }
 
-fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args, extra_tests: bool) -> usize {
-    if !bigprime_dry(&a, i, j) {
+fn bigprime(dna: &Vec<BigUint>, a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String, BigUint, Vec<BigUint>)>, args: &Args, extra_tests: bool) -> usize {
+    if !bigprime_dry(&dna, i, j) {
         return 0;
     }
     let zero= BigUint::zero();
     let one= BigUint::one();
-    let two = BigUint::from(2_u64);
-    let mut last = &a[i];
+    let two = BigUint::from(2_u64);//.pow(k as u32);
+    //let mut last = &a[i];
     let mut accum = if k < 0 {zero.clone()} else {two.pow(k as u32)};
     let mut digit = BigUint::from(1_u64);
-    for  p in &a[i+1..j] {
-        let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
+    for  add in &dna[i+1..j] {
+        //let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
         accum = accum.add(digit.clone().mul(add));
         digit = digit.mul(&two);
-        last = p;
+        //last = p;
     }
     let mut tests = 0;
     if accum.gt(&two) {
@@ -254,8 +254,11 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
             if accum.clone().rem(&two).is_zero() {
                 accum.add_assign(&one);
             }
-            let (exact, divisors) = myreduce(args.divisors, &accum, &a);
-            //let exact = accum;
+            let (exact, divisors) = if true /*args.allow_divided*/ {
+                myreduce(args.divisors, &accum, &a)
+            } else {
+                (accum, vec![])
+            };
             if args.allow_divided || divisors.is_empty() {
                 tests = 1;
                 if is_prime(&exact, None).probably() {
@@ -290,17 +293,17 @@ fn bigprime(a: &Vec<BigUint>, i:usize,j:usize,k:i64, b: &mut Vec<(usize, String,
 
 fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
     let zero= BigUint::zero();
-    let two = BigUint::from(2_u64);
-    let mut last = &a[i];
+    //let two = BigUint::from(2_u64);
+    //let mut last = &a[i];
     let mut leading = true;
     let mut first_zero = false;
     let mut trailing_zeros = 0;
     let mut _leading_zeros = 0;
     let mut first = true;
-    for  p in &a[i+1..j] {
-        let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
+    for  add in &a[i+1..j] {
+        //let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
         if !first {
-            if add == zero {
+            if *add == zero {
                 if leading {
                     _leading_zeros += 1;
                 }
@@ -311,9 +314,9 @@ fn bigprime_dry(a: &Vec<BigUint>, i:usize, j:usize) -> bool {
             }
         } else {
             first = false;
-            first_zero = add == zero;
+            first_zero = *add == zero;
         }
-        last = p;
+        //last = p;
     }
     if first_zero  || trailing_zeros > 0 {
         return false;
@@ -337,6 +340,15 @@ fn main() {
     let mut a = Vec::<BigUint>::new();
     for p in primes(nth_prime(usize::max(args.divisors, hi+1) as u64)+1_u64).iter() {
         a.push(BigUint::from(*p));
+    }
+    let mut dna = Vec::<BigUint>::new();
+    let mut last = &a[0];
+    let two = BigUint::from(2_u64);
+    dna.push(BigUint::from(0_u64));
+    for p in &a[1..a.len()] {
+        let add = p.sub(last).to_biguint().unwrap().div(two.clone()).rem(two.clone());
+        dna.push(add);
+        last = p;
     }
     let mut indices = Vec::<(usize, usize, i64, bool)>::new();
 
@@ -375,7 +387,7 @@ fn main() {
         .map(|(i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
         let tests0 = if running.load(Ordering::SeqCst) {
-            bigprime(&a, i, j, k, &mut b, &args, extra)
+            bigprime(&dna, &a, i, j, k, &mut b, &args, extra)
         } else {
             0
         };
