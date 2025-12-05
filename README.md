@@ -87,3 +87,9 @@ to the descriptions given, e.g. first of the three primes above given `p(2284,26
 ```
  time ./prime -d2 -f 54356 -t 62548 -p 65536 --allow-divided    # ~ 17 minutes
 ```
+
+## Technical Review
+
+See [REVIEW.md](REVIEW.md) for an independent analysis of the claimed speedup.
+
+Review conducted using the [Self-Adversarial Discipline](https://github.com/popelka-dev/orbit/blob/main/CLAUDE.md#self-adversarial-discipline) protocol from the [Orbit](https://github.com/popelka-dev/orbit) mathematical explorations project.
