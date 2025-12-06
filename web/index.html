@@ -24,6 +24,26 @@
       font-family: monospace;
     }
     .stats span { color: #00d4ff; }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .tab {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #0f0f23;
+      color: #888;
+      cursor: pointer;
+      text-align: center;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    .tab:hover { border-color: #00d4ff; color: #ccc; }
+    .tab.active { border-color: #00d4ff; color: #00d4ff; background: #16213e; }
+    .tab small { display: block; font-size: 11px; color: #666; margin-top: 3px; }
     input {
       width: 100%;
       padding: 15px;
@@ -33,6 +53,12 @@
       background: #0f0f23;
       color: #fff;
       text-align: center;
+      -moz-appearance: textfield;
+    }
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
     }
     input:focus { outline: none; border-color: #00d4ff; }
     .result {
@@ -45,12 +71,13 @@
     .prime { background: #0a3d0a; color: #4cff4c; }
     .composite { background: #3d0a0a; color: #ff4c4c; }
     .info { background: #16213e; color: #aaa; }
-    .neighbors {
-      margin-top: 15px;
+    .neutral { background: #1a1a3e; color: #00d4ff; }
+    .detail {
+      margin-top: 10px;
       font-size: 14px;
       color: #888;
     }
-    .neighbors span { color: #00d4ff; }
+    .detail span { color: #00d4ff; }
     .dna-preview {
       margin-top: 30px;
       padding: 15px;
@@ -74,12 +101,27 @@
   <div class="stats">
     Načteno: <span id="count">...</span> prvočísel |
     Velikost: <span id="size">...</span> KB |
-    Rozsah: 2 - <span id="max">...</span>
+    Rozsah: 2 – <span id="max">...</span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-mode="primeq">
+      PrimeQ
+      <small>Je n prvočíslo?</small>
+    </div>
+    <div class="tab" data-mode="prime">
+      Prime
+      <small>n-té prvočíslo</small>
+    </div>
+    <div class="tab" data-mode="primepi">
+      PrimePi
+      <small>π(n) = počet prim ≤ n</small>
+    </div>
   </div>
 
   <input type="number" id="input" placeholder="Zadej číslo..." autofocus>
 
-  <div id="result" class="result info">Zadej číslo pro test prvočíselnosti</div>
+  <div id="result" class="result info">Zadej číslo</div>
 
   <div class="dna-preview" id="dna">Načítám DNA...</div>
 
@@ -89,7 +131,7 @@
   </footer>
 
   <script>
-    // Prime DNA implementation (inline)
+    // Prime DNA implementation
     class PrimeDNA {
       constructor() { this.firstPrime = 2; this.halfGaps = null; }
 
@@ -119,23 +161,20 @@
         }
         return primes;
       }
-
-      findNeighbors(n) {
-        const primes = this.decode();
-        let lo = 0, hi = primes.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (primes[mid] < n) lo = mid + 1;
-          else hi = mid;
-        }
-        const prev = lo > 0 ? primes[lo - 1] : null;
-        const next = primes[lo] >= n ? primes[lo] : (lo + 1 < primes.length ? primes[lo + 1] : null);
-        const exact = primes[lo] === n;
-        return { prev, next, exact, index: exact ? lo : null };
-      }
     }
 
-    // Generate DNA for first 100k primes (embedded)
+    // Binary search: find index where primes[i] >= n
+    function lowerBound(primes, n) {
+      let lo = 0, hi = primes.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (primes[mid] < n) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
+    // Generate DNA
     function sievePrimes(limit) {
       const sieve = new Uint8Array(limit + 1).fill(1);
       sieve[0] = sieve[1] = 0;
@@ -157,49 +196,111 @@
       return btoa(String.fromCharCode(...combined));
     }
 
+    // Czech number formatting (narrow non-breaking space)
+    const fmt = n => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
+
     // Initialize
-    const limit = 1000000; // primes up to 1M
-    const primes = sievePrimes(limit);
-    const dnaB64 = encodeDNA(primes);
-
+    const limit = 1000000;
+    const primesRaw = sievePrimes(limit);
+    const dnaB64 = encodeDNA(primesRaw);
     const dna = new PrimeDNA().fromBase64(dnaB64);
-    const allPrimes = dna.decode();
+    const allPrimes = dna.decode();  // Decode ONCE
 
-    document.getElementById('count').textContent = dna.count.toLocaleString();
+    document.getElementById('count').textContent = fmt(allPrimes.length);
     document.getElementById('size').textContent = (dnaB64.length / 1024).toFixed(1);
-    document.getElementById('max').textContent = allPrimes[allPrimes.length - 1].toLocaleString();
+    document.getElementById('max').textContent = fmt(allPrimes[allPrimes.length - 1]);
     document.getElementById('dna').textContent = dnaB64.slice(0, 500) + '...';
 
-    // Handle input
+    // Mode handling
+    let mode = 'primeq';
+    const tabs = document.querySelectorAll('.tab');
     const input = document.getElementById('input');
     const result = document.getElementById('result');
 
-    input.addEventListener('input', () => {
-      const n = parseInt(input.value);
-      if (isNaN(n) || n < 0) {
-        result.className = 'result info';
-        result.innerHTML = 'Zadej kladné celé číslo';
-        return;
-      }
+    const placeholders = {
+      primeq: 'Je n prvočíslo?',
+      prime: 'Které je n-té prvočíslo?',
+      primepi: 'Kolik je prvočísel ≤ n?'
+    };
 
-      if (n > allPrimes[allPrimes.length - 1]) {
-        result.className = 'result info';
-        result.innerHTML = `Číslo ${n.toLocaleString()} je mimo rozsah databáze`;
-        return;
-      }
-
-      const { prev, next, exact, index } = dna.findNeighbors(n);
-
-      if (exact) {
-        result.className = 'result prime';
-        result.innerHTML = `✓ ${n.toLocaleString()} JE PRVOČÍSLO<br>
-          <span class="neighbors">(${(index + 1).toLocaleString()}. prvočíslo v pořadí)</span>`;
-      } else {
-        result.className = 'result composite';
-        result.innerHTML = `✗ ${n.toLocaleString()} NENÍ prvočíslo<br>
-          <span class="neighbors">Nejbližší: <span>${prev?.toLocaleString() || '–'}</span> < n < <span>${next?.toLocaleString() || '–'}</span></span>`;
-      }
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        mode = tab.dataset.mode;
+        input.placeholder = placeholders[mode];
+        handleInput();
+      });
     });
+
+    function handleInput() {
+      const n = parseInt(input.value);
+
+      if (isNaN(n) || n < 1) {
+        result.className = 'result info';
+        result.innerHTML = placeholders[mode];
+        return;
+      }
+
+      if (mode === 'primeq') {
+        // PrimeQ: Is n prime?
+        if (n > allPrimes[allPrimes.length - 1]) {
+          result.className = 'result info';
+          result.innerHTML = `${fmt(n)} je mimo rozsah databáze`;
+          return;
+        }
+
+        const idx = lowerBound(allPrimes, n);
+        const isPrime = allPrimes[idx] === n;
+
+        if (isPrime) {
+          result.className = 'result prime';
+          result.innerHTML = `✓ <strong>${fmt(n)}</strong> JE PRVOČÍSLO
+            <div class="detail">Prime(${fmt(idx + 1)}) = ${fmt(n)}</div>`;
+        } else {
+          const prev = idx > 0 ? allPrimes[idx - 1] : null;
+          const next = allPrimes[idx] || null;
+          result.className = 'result composite';
+          result.innerHTML = `✗ <strong>${fmt(n)}</strong> NENÍ prvočíslo
+            <div class="detail">Nejbližší: <span>${prev ? fmt(prev) : '–'}</span> &lt; ${fmt(n)} &lt; <span>${next ? fmt(next) : '–'}</span></div>`;
+        }
+
+      } else if (mode === 'prime') {
+        // Prime(n): n-th prime
+        if (n > allPrimes.length) {
+          result.className = 'result info';
+          result.innerHTML = `Index ${fmt(n)} je mimo rozsah (max ${fmt(allPrimes.length)})`;
+          return;
+        }
+
+        const p = allPrimes[n - 1];  // 1-indexed
+        result.className = 'result neutral';
+        result.innerHTML = `Prime(${fmt(n)}) = <strong>${fmt(p)}</strong>
+          <div class="detail">${fmt(n)}. prvočíslo v pořadí</div>`;
+
+      } else if (mode === 'primepi') {
+        // PrimePi(n): count of primes ≤ n
+        if (n < 2) {
+          result.className = 'result neutral';
+          result.innerHTML = `π(${n}) = <strong>0</strong>
+            <div class="detail">Žádné prvočíslo ≤ ${n}</div>`;
+          return;
+        }
+
+        const idx = lowerBound(allPrimes, n + 1);  // First prime > n
+        const count = idx;
+
+        result.className = 'result neutral';
+        result.innerHTML = `π(${fmt(n)}) = <strong>${fmt(count)}</strong>
+          <div class="detail">${fmt(count)} prvočísel ≤ ${fmt(n)}</div>`;
+
+        if (n > allPrimes[allPrimes.length - 1]) {
+          result.innerHTML += `<div class="detail" style="color:#ff6b6b">⚠ n překračuje rozsah, zobrazeno π(${fmt(allPrimes[allPrimes.length-1])})</div>`;
+        }
+      }
+    }
+
+    input.addEventListener('input', handleInput);
   </script>
 </body>
 </html>
