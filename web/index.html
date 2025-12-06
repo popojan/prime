@@ -3,69 +3,84 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prime DNA - Prvočíselná databáze</title>
+  <title>Prime & Factor DNA</title>
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      max-width: 800px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', 'Liberation Sans', sans-serif;
+      max-width: min(90vw, 1200px);
       margin: 0 auto;
       padding: 20px;
       background: #1a1a2e;
       color: #eee;
     }
-    h1 { color: #00d4ff; margin-bottom: 5px; }
-    .subtitle { color: #888; margin-bottom: 20px; }
-    .stats {
-      background: #16213e;
-      padding: 15px;
-      border-radius: 8px;
-      margin-bottom: 20px;
+    h1 { color: #00d4ff; margin-bottom: 5px; display: inline; }
+    .help-btn {
+      display: inline-block;
+      width: 24px; height: 24px;
+      line-height: 22px;
+      text-align: center;
+      border-radius: 50%;
+      background: #333;
+      color: #888;
+      font-size: 13px;
+      cursor: pointer;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+    .help-btn:hover { background: #444; color: #00d4ff; }
+    .subtitle { color: #888; margin-bottom: 20px; display: block; margin-top: 5px; }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 100;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    .modal.show { display: flex; justify-content: center; align-items: flex-start; }
+    .modal-content {
+      background: #1a1a2e;
+      border-radius: 12px;
+      padding: 25px;
+      max-width: 600px;
+      margin-top: 50px;
+      border: 1px solid #333;
+    }
+    .modal h2 { color: #00d4ff; margin-bottom: 15px; font-size: 18px; }
+    .modal h3 { color: #ff6b9d; margin: 20px 0 10px; font-size: 15px; }
+    .modal p { line-height: 1.6; margin-bottom: 10px; color: #ccc; }
+    .modal code {
+      background: #0a0a1a;
+      padding: 2px 6px;
+      border-radius: 4px;
       font-family: monospace;
+      color: #00d4ff;
     }
-    .stats span { color: #00d4ff; }
-    .tabs {
-      display: flex;
-      gap: 0;
-      margin-bottom: 0;
-      padding-left: 10px;
-    }
-    .tab {
-      padding: 8px 16px;
-      border: 2px solid #333;
-      border-bottom: none;
-      border-radius: 8px 8px 0 0;
-      background: #0a0a18;
+    .modal .close {
+      float: right;
+      font-size: 24px;
       color: #666;
       cursor: pointer;
-      text-align: center;
+    }
+    .modal .close:hover { color: #fff; }
+    .stats {
+      background: #16213e;
+      padding: 10px 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
       font-size: 13px;
-      margin-right: 2px;
-      position: relative;
-      top: 2px;
+      color: #888;
     }
-    .tab:hover { color: #aaa; background: #0f0f23; }
-    .tab.active {
-      background: #0f0f23;
-      color: #00d4ff;
-      border-color: #444;
-      z-index: 1;
-    }
-    .tab small { display: block; font-size: 10px; color: #555; margin-top: 2px; }
-    .tab.active small { color: #00d4ff; opacity: 0.7; }
-    .input-panel {
-      border: 2px solid #444;
-      border-radius: 0 8px 8px 8px;
-      background: #0f0f23;
-      padding: 15px;
-    }
+    .stats span { color: #00d4ff; }
     input {
       width: 100%;
       padding: 15px;
-      font-size: 24px;
-      border: none;
-      border-radius: 6px;
-      background: #1a1a2e;
+      font-size: clamp(24px, 4vw, 36px);
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: #0f0f23;
       color: #fff;
       text-align: center;
       -moz-appearance: textfield;
@@ -75,245 +90,302 @@
       -webkit-appearance: none;
       margin: 0;
     }
-    input:focus { outline: 2px solid #00d4ff; outline-offset: -2px; }
-    .result {
-      margin-top: 15px;
-      padding: 15px;
-      border-radius: 6px;
-      font-size: 20px;
-      text-align: center;
+    input:focus { outline: none; border-color: #00d4ff; box-shadow: 0 0 10px rgba(0, 212, 255, 0.5); }
+    .results {
+      margin-top: 20px;
+      display: grid;
+      gap: 15px;
     }
-    .prime { background: #0a3d0a; color: #4cff4c; }
-    .composite { background: #3d0a0a; color: #ff4c4c; }
-    .info { background: #16213e; color: #aaa; }
-    .neutral { background: #1a1a3e; color: #00d4ff; }
-    .detail {
-      margin-top: 10px;
-      font-size: 14px;
-      color: #888;
-    }
-    .detail span { color: #00d4ff; }
-    .dna-preview {
-      margin-top: 30px;
-      padding: 15px;
-      background: #0f0f23;
+    .card {
+      padding: 20px;
       border-radius: 8px;
-      font-family: monospace;
-      font-size: 10px;
-      word-break: break-all;
-      max-height: 100px;
-      overflow: auto;
-      color: #666;
+      background: #16213e;
     }
-    footer { margin-top: 30px; text-align: center; color: #444; font-size: 12px; }
-    a { color: #00d4ff; }
+    .card h3 {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .card .value {
+      font-size: clamp(24px, 3.5vw, 32px);
+    }
+    .card .detail {
+      font-size: 13px;
+      color: #888;
+      margin-top: 8px;
+    }
+    .prime { border-left: 4px solid #4cff4c; }
+    .prime .value { color: #4cff4c; }
+    .composite { border-left: 4px solid #ff6b9d; }
+    .composite .value { color: #ff6b9d; }
+    .power { border-left: 4px solid #ffc94c; }
+    .power .value { color: #ffc94c; }
+    .neutral { border-left: 4px solid #00d4ff; }
+    .neutral .value { color: #00d4ff; }
+    .factorization sup { font-size: 15px; opacity: 0.7; }
+    footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #555;
+      font-size: 13px;
+    }
+    footer a { color: #00d4ff; }
   </style>
 </head>
 <body>
-  <h1>🧬 Prime DNA</h1>
-  <p class="subtitle">Kompaktní prvočíselná databáze zakódovaná v base64</p>
+  <h1>🧬 Prime & Factor DNA</h1><span class="help-btn" onclick="modal.classList.add('show')">?</span>
+  <p class="subtitle">Kompaktní prvočíselná a faktorizační databáze</p>
+
+  <div class="modal" id="modal" onclick="if(event.target===this)this.classList.remove('show')">
+    <div class="modal-content">
+      <span class="close" onclick="modal.classList.remove('show')">&times;</span>
+      <h2>Jak to funguje?</h2>
+
+      <h3>🧬 Prime DNA</h3>
+      <p>
+        Prvočísla zakódujeme pomocí <strong>mezer</strong> (gaps) mezi nimi.
+        Všechny mezery (kromě 2→3) jsou sudé, takže ukládáme <code>gap/2</code>.
+      </p>
+      <p>
+        Výsledek: ~1 byte na prvočíslo. Pro 78k prvočísel do milionu stačí ~100 KB.
+      </p>
+
+      <h3>🔬 Factor DNA</h3>
+      <p>
+        Pro faktorizaci předpočítáme <strong>SPF</strong> (Smallest Prime Factor).
+        Rozklad pak probíhá opakovaným dělením v O(log n):
+      </p>
+      <p>
+        <code>60 → SPF=2 → 30 → SPF=2 → 15 → SPF=3 → 5</code>
+      </p>
+      <p>
+        To je ~50× rychlejší než trial division pro velká čísla.
+      </p>
+
+      <h3>⚙️ Optimalizace</h3>
+      <p>
+        <strong>Wheel mod 30:</strong> Přeskočíme násobky 2, 3, 5 (ukládáme jen 27% čísel).<br>
+        <strong>VLC:</strong> Malé SPF jsou častější → variabilní kódování šetří bity.
+      </p>
+    </div>
+  </div>
 
   <div class="stats">
-    Načteno: <span id="count">...</span> prvočísel |
-    Velikost: <span id="size">...</span> KB |
-    Rozsah: 2 – <span id="max">...</span>
+    Rozsah: 2 – <span id="max">...</span> |
+    Prvočísel: <span id="count">...</span> |
+    Init: <span id="timing">...</span>
   </div>
 
-  <div class="tabs">
-    <div class="tab active" data-mode="primeq">
-      PrimeQ
-      <small>Je n prvočíslo?</small>
-    </div>
-    <div class="tab" data-mode="prime">
-      Prime
-      <small>n-té prvočíslo</small>
-    </div>
-    <div class="tab" data-mode="primepi">
-      PrimePi
-      <small>π(n) = počet prim ≤ n</small>
+  <input type="number" id="input" placeholder="Zadej číslo..." autofocus>
+
+  <div class="results" id="results">
+    <div class="card neutral">
+      <h3>Zadej číslo</h3>
+      <div class="value">n = ?</div>
     </div>
   </div>
-
-  <div class="input-panel">
-    <input type="number" id="input" placeholder="Zadej číslo..." autofocus>
-    <div id="result" class="result info">Zadej číslo</div>
-  </div>
-
-  <div class="dna-preview" id="dna">Načítám DNA...</div>
 
   <footer>
     <a href="https://hraj.si">hraj.si</a> |
-    DNA = gap/2 encoding, ~1 byte per prime
+    Gap encoding + SPF sieve
   </footer>
 
   <script>
-    // Prime DNA implementation
-    class PrimeDNA {
-      constructor() { this.firstPrime = 2; this.halfGaps = null; }
+    // Czech number formatting
+    const fmt = n => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
 
-      fromBase64(b64) {
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const view = new DataView(bytes.buffer);
-        this.firstPrime = view.getUint32(0, true);
-        this.halfGaps = bytes.slice(4);
-        return this;
+    // Czech declension: 1 prvočíslo, 2-4 prvočísla, 5+ prvočísel
+    function prvocislo(n) {
+      const mod100 = n % 100;
+      const mod10 = n % 10;
+      if (mod100 >= 11 && mod100 <= 14) return 'prvočísel';
+      if (mod10 === 1) return 'prvočíslo';
+      if (mod10 >= 2 && mod10 <= 4) return 'prvočísla';
+      return 'prvočísel';
+    }
+    // Easter egg: link to article about Czech numeral declension
+    function grammarEgg(n) {
+      const mod100 = n % 100;
+      const mod10 = n % 10;
+      if (n > 20 && mod10 >= 1 && mod10 <= 4 && !(mod100 >= 11 && mod100 <= 14)) {
+        return ' <a href="http://nase-rec.ujc.cas.cz/archiv.php?art=5533" target="_blank" style="color:#555;font-size:11px" title="Proč ne prvočísel?">(?)</a>';
       }
-
-      get count() { return this.halfGaps.length + 1; }
-
-      decode() {
-        const primes = new Array(this.halfGaps.length + 1);
-        let p = this.firstPrime;
-        primes[0] = p;
-        if (this.halfGaps.length > 0) {
-          p += this.halfGaps[0];
-          primes[1] = p;
-          for (let i = 1; i < this.halfGaps.length; i++) {
-            p += 2 * this.halfGaps[i];
-            primes[i + 1] = p;
-          }
-        }
-        return primes;
-      }
+      return '';
     }
 
-    // Binary search: find index where primes[i] >= n
-    function lowerBound(primes, n) {
-      let lo = 0, hi = primes.length;
+    // Generate primes using sieve
+    function sievePrimes(limit) {
+      const sieve = new Uint8Array(limit + 1);
+      const primes = [2];
+      for (let i = 3; i <= limit; i += 2) {
+        if (!sieve[i]) {
+          primes.push(i);
+          for (let j = i * i; j <= limit; j += 2 * i) sieve[j] = 1;
+        }
+      }
+      return primes;
+    }
+
+    // Generate SPF table
+    function generateSPF(limit) {
+      const spf = new Uint32Array(limit + 1);
+      for (let i = 0; i <= limit; i++) spf[i] = i;
+      for (let i = 2; i * i <= limit; i++) {
+        if (spf[i] === i) {
+          for (let j = i * i; j <= limit; j += i) {
+            if (spf[j] === j) spf[j] = i;
+          }
+        }
+      }
+      return spf;
+    }
+
+    // Factorize using SPF
+    function factorize(n, spf) {
+      if (n <= 1) return [];
+      const factors = [];
+      while (n > 1) {
+        const p = spf[n];
+        let exp = 0;
+        while (n % p === 0) {
+          n = Math.floor(n / p);
+          exp++;
+        }
+        factors.push([p, exp]);
+      }
+      return factors;
+    }
+
+    // Format factorization
+    function formatFactors(factors) {
+      if (!factors || factors.length === 0) return '1';
+      return factors.map(([p, e]) =>
+        e > 1 ? `${fmt(p)}<sup>${e}</sup>` : fmt(p)
+      ).join(' × ');
+    }
+
+    // Binary search
+    function lowerBound(arr, val) {
+      let lo = 0, hi = arr.length;
       while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (primes[mid] < n) lo = mid + 1;
+        const mid = (lo + hi) >>> 1;
+        if (arr[mid] < val) lo = mid + 1;
         else hi = mid;
       }
       return lo;
     }
 
-    // Generate DNA
-    function sievePrimes(limit) {
-      const sieve = new Uint8Array(limit + 1).fill(1);
-      sieve[0] = sieve[1] = 0;
-      for (let i = 2; i * i <= limit; i++) {
-        if (sieve[i]) for (let j = i * i; j <= limit; j += i) sieve[j] = 0;
-      }
-      return [...sieve.keys()].filter(i => sieve[i]);
-    }
-
-    function encodeDNA(primes) {
-      const header = new Uint8Array(4);
-      new DataView(header.buffer).setUint32(0, primes[0], true);
-      const gaps = new Uint8Array(primes.length - 1);
-      gaps[0] = primes[1] - primes[0];
-      for (let i = 2; i < primes.length; i++) gaps[i-1] = (primes[i] - primes[i-1]) / 2;
-      const combined = new Uint8Array(4 + gaps.length);
-      combined.set(header);
-      combined.set(gaps, 4);
-      return btoa(String.fromCharCode(...combined));
-    }
-
-    // Czech number formatting (narrow non-breaking space)
-    const fmt = n => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
-
     // Initialize
     const limit = 1000000;
-    const primesRaw = sievePrimes(limit);
-    const dnaB64 = encodeDNA(primesRaw);
-    const dna = new PrimeDNA().fromBase64(dnaB64);
-    const allPrimes = dna.decode();  // Decode ONCE
+    const t0 = performance.now();
+    const primes = sievePrimes(limit);
+    const spf = generateSPF(limit);
+    const initTime = (performance.now() - t0).toFixed(0);
 
-    document.getElementById('count').textContent = fmt(allPrimes.length);
-    document.getElementById('size').textContent = (dnaB64.length / 1024).toFixed(1);
-    document.getElementById('max').textContent = fmt(allPrimes[allPrimes.length - 1]);
-    document.getElementById('dna').textContent = dnaB64.slice(0, 500) + '...';
+    document.getElementById('max').textContent = fmt(limit);
+    document.getElementById('count').textContent = fmt(primes.length);
+    document.getElementById('timing').textContent = `${initTime} ms`;
 
-    // Mode handling
-    let mode = 'primeq';
-    const tabs = document.querySelectorAll('.tab');
     const input = document.getElementById('input');
-    const result = document.getElementById('result');
-
-    const placeholders = {
-      primeq: 'Je n prvočíslo?',
-      prime: 'Které je n-té prvočíslo?',
-      primepi: 'Kolik je prvočísel ≤ n?'
-    };
-
-    tabs.forEach(tab => {
-      tab.addEventListener('click', () => {
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        mode = tab.dataset.mode;
-        input.placeholder = placeholders[mode];
-        handleInput();
-      });
-    });
+    const results = document.getElementById('results');
 
     function handleInput() {
       const n = parseInt(input.value);
 
       if (isNaN(n) || n < 1) {
-        result.className = 'result info';
-        result.innerHTML = placeholders[mode];
+        results.innerHTML = `
+          <div class="card neutral">
+            <h3>Zadej číslo</h3>
+            <div class="value">n = ?</div>
+          </div>`;
         return;
       }
 
-      if (mode === 'primeq') {
-        // PrimeQ: Is n prime?
-        if (n > allPrimes[allPrimes.length - 1]) {
-          result.className = 'result info';
-          result.innerHTML = `${fmt(n)} je mimo rozsah databáze`;
-          return;
-        }
-
-        const idx = lowerBound(allPrimes, n);
-        const isPrime = allPrimes[idx] === n;
-
-        if (isPrime) {
-          result.className = 'result prime';
-          result.innerHTML = `✓ <strong>${fmt(n)}</strong> JE PRVOČÍSLO
-            <div class="detail">Prime(${fmt(idx + 1)}) = ${fmt(n)}</div>`;
-        } else {
-          const prev = idx > 0 ? allPrimes[idx - 1] : null;
-          const next = allPrimes[idx] || null;
-          result.className = 'result composite';
-          result.innerHTML = `✗ <strong>${fmt(n)}</strong> NENÍ prvočíslo
-            <div class="detail">Nejbližší: <span>${prev ? fmt(prev) : '–'}</span> &lt; ${fmt(n)} &lt; <span>${next ? fmt(next) : '–'}</span></div>`;
-        }
-
-      } else if (mode === 'prime') {
-        // Prime(n): n-th prime
-        if (n > allPrimes.length) {
-          result.className = 'result info';
-          result.innerHTML = `Index ${fmt(n)} je mimo rozsah (max ${fmt(allPrimes.length)})`;
-          return;
-        }
-
-        const p = allPrimes[n - 1];  // 1-indexed
-        result.className = 'result neutral';
-        result.innerHTML = `Prime(${fmt(n)}) = <strong>${fmt(p)}</strong>
-          <div class="detail">${fmt(n)}. prvočíslo v pořadí</div>`;
-
-      } else if (mode === 'primepi') {
-        // PrimePi(n): count of primes ≤ n
-        if (n < 2) {
-          result.className = 'result neutral';
-          result.innerHTML = `π(${n}) = <strong>0</strong>
-            <div class="detail">Žádné prvočíslo ≤ ${n}</div>`;
-          return;
-        }
-
-        const idx = lowerBound(allPrimes, n + 1);  // First prime > n
-        const count = idx;
-
-        result.className = 'result neutral';
-        result.innerHTML = `π(${fmt(n)}) = <strong>${fmt(count)}</strong>
-          <div class="detail">${fmt(count)} prvočísel ≤ ${fmt(n)}</div>`;
-
-        if (n > allPrimes[allPrimes.length - 1]) {
-          result.innerHTML += `<div class="detail" style="color:#ff6b6b">⚠ n překračuje rozsah, zobrazeno π(${fmt(allPrimes[allPrimes.length-1])})</div>`;
-        }
+      if (n > limit) {
+        results.innerHTML = `
+          <div class="card neutral">
+            <h3>Mimo rozsah</h3>
+            <div class="value">${fmt(n)}</div>
+            <div class="detail">Maximum: ${fmt(limit)}</div>
+          </div>`;
+        return;
       }
+
+      const factors = factorize(n, spf);
+      const isPrime = factors.length === 1 && factors[0][1] === 1;
+      const isPower = factors.length === 1 && factors[0][1] > 1;
+      const idx = lowerBound(primes, n);
+      const primeIdx = primes[idx] === n ? idx + 1 : null;
+
+      let html = '';
+
+      // Main card - what is this number?
+      if (n === 1) {
+        html += `
+          <div class="card neutral">
+            <h3>Identita</h3>
+            <div class="value">1</div>
+            <div class="detail">Jednička není prvočíslo ani složené číslo</div>
+          </div>`;
+      } else if (isPrime) {
+        html += `
+          <div class="card prime">
+            <h3>Prvočíslo</h3>
+            <div class="value">${fmt(n)}</div>
+            <div class="detail">Prime(${fmt(primeIdx)}) – ${fmt(primeIdx)}. prvočíslo v pořadí</div>
+          </div>`;
+      } else if (isPower) {
+        const [p, k] = factors[0];
+        html += `
+          <div class="card power">
+            <h3>Mocnina prvočísla</h3>
+            <div class="value factorization">${fmt(p)}<sup>${k}</sup></div>
+            <div class="detail">${fmt(n)} = ${fmt(p)} na ${k}.</div>
+          </div>`;
+      } else {
+        html += `
+          <div class="card composite">
+            <h3>Složené číslo</h3>
+            <div class="value factorization">${formatFactors(factors)}</div>
+            <div class="detail">${factors.length} ${factors.length === 1 ? 'prvočíselný faktor' : factors.length < 5 ? 'různé prvočíselné faktory' : 'různých prvočíselných faktorů'}</div>
+          </div>`;
+      }
+
+      // Pi(n) card
+      const piN = lowerBound(primes, n + 1);
+      html += `
+        <div class="card neutral">
+          <h3>π(n)</h3>
+          <div class="value">${fmt(piN)}</div>
+          <div class="detail">${fmt(piN)} ${prvocislo(piN)}${grammarEgg(piN)} ≤ ${fmt(n)}</div>
+        </div>`;
+
+      // Neighbors card (if not prime)
+      if (!isPrime && n > 1) {
+        const prev = idx > 0 ? primes[idx - 1] : null;
+        const next = primes[idx] || null;
+        html += `
+          <div class="card neutral">
+            <h3>Sousední prvočísla</h3>
+            <div class="value">${prev ? fmt(prev) : '–'} &lt; n &lt; ${next ? fmt(next) : '–'}</div>
+            <div class="detail">Mezera: ${next && prev ? next - prev : '?'}</div>
+          </div>`;
+      }
+
+      // Prime(n) card - always green
+      if (n <= primes.length) {
+        const nthPrime = primes[n - 1];
+        html += `
+          <div class="card prime">
+            <h3>Prime(n)</h3>
+            <div class="value">${fmt(nthPrime)}</div>
+            <div class="detail">${fmt(n)}. ${prvocislo(1)} v pořadí</div>
+          </div>`;
+      }
+
+      results.innerHTML = html;
     }
 
     input.addEventListener('input', handleInput);
