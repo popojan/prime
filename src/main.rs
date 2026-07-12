@@ -23,6 +23,10 @@ use num_prime::PrimalityTestConfig;
 /// sequence of half the difference between two successor primes mod 2 as binary digits
 /// of a big prime candidate being tested for primality. Somehow it works much better
 /// than random or sequential search.
+///
+/// With --skip s > 1 the DNA generalizes to skip-gaps: bit n is half the difference
+/// between p(n) and p(n-s) mod 2, which equals the XOR of s successive base DNA bits.
+/// Each skip value yields an independent-looking fragment stream over the same primes.
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -38,6 +42,14 @@ struct Args {
     /// Order of the highest precalculated divisor prime
     #[clap(short, long, value_parser, default_value_t = 100)]
     divisors: usize,
+
+    /// Minimum skip: DNA bit n is (p(n) - p(n-skip))/2 mod 2 (1 = successive primes)
+    #[clap(short, long, value_parser, default_value_t = 1)]
+    skip: usize,
+
+    /// Maximum skip; sweeps every skip from --skip to --max-skip [default: same as --skip]
+    #[clap(long, value_parser)]
+    max_skip: Option<usize>,
 
     /// Start generating from bigger primes to smaller
     #[clap(long, value_parser, default_value_t = false)]
@@ -341,17 +353,42 @@ fn main() {
         dna.push(add);
         last = p;
     }
-    let mut indices = Vec::<(usize, usize, i64, bool)>::new();
 
-    for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
-        for i in lo..hi-kn+1 {
-            indices.push((i, i + kn, kk, extra_tests));
+    let min_skip = usize::max(args.skip, 1);
+    let max_skip = usize::max(args.max_skip.unwrap_or(min_skip), min_skip);
+
+    // prefix parity of the base DNA: pre[n] = dna[0] ^ ... ^ dna[n]
+    let mut pre = Vec::<u8>::with_capacity(dna.len());
+    let mut parity = 0u8;
+    for d in &dna {
+        parity ^= if d.is_zero() {0} else {1};
+        pre.push(parity);
+    }
+    // skip-s DNA: bit n = (p(n) - p(n-s))/2 mod 2 = pre[n] ^ pre[n-s], valid for n >= s
+    let mut streams = Vec::<Vec<BigUint>>::new();
+    for s in min_skip..max_skip+1 {
+        let mut ds = vec![BigUint::zero(); dna.len()];
+        for n in s..dna.len() {
+            if pre[n] ^ pre[n - s] == 1 {
+                ds[n] = BigUint::one();
+            }
+        }
+        streams.push(ds);
+    }
+
+    let mut indices = Vec::<(usize, usize, usize, i64, bool)>::new();
+
+    for s in min_skip..max_skip+1 {
+        for kn in min_kn..usize::min(max_kn, hi-lo)+1  {
+            for i in usize::max(lo, s.saturating_sub(1))..hi-kn+1 {
+                indices.push((s, i, i + kn, kk, extra_tests));
+            }
         }
     }
     if asc {
-        indices.sort_by(|b, a| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
+        indices.sort_by(|b, a| (b.1, b.2 - b.1, b.0).partial_cmp(&(a.1, a.2 - a.1, a.0)).unwrap());
     } else {
-        indices.sort_by(|a, b| (b.0, b.1 - b.0).partial_cmp(&(a.0, a.1 - a.0)).unwrap());
+        indices.sort_by(|a, b| (b.1, b.2 - b.1, b.0).partial_cmp(&(a.1, a.2 - a.1, a.0)).unwrap());
     };
 
     let running = Arc::new(AtomicBool::new(true));
@@ -370,48 +407,48 @@ fn main() {
     );
 
     let mut probable_primes = indices.into_par_iter()
-    .inspect(|(i, j, k,_extra)| {
+    .inspect(|(s, i, j, k,_extra)| {
         if args.debug {
-            println!("Testing span p({},{},{})... ", i, j, k);
+            println!("Testing span p({},{},{},{})... ", i, j, k, s);
         }
     })
-        .map(|(i, j, k, extra)| {
+        .map(|(s, i, j, k, extra)| {
         let mut b = Vec::<(usize, String, BigUint, Vec<BigUint>)>::new();
         let tests0 = if running.load(Ordering::SeqCst) {
-            bigprime(&dna, &a, i, j, k, &mut b, &args, extra)
+            bigprime(&streams[s - min_skip], &a, i, j, k, &mut b, &args, extra)
         } else {
             0
         };
         if b.len() > 0 {
             let tup = b.first().unwrap();
-            pbr.set_message(format!("Found p({},{},{})!", i, j, k));
-            (i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
+            pbr.set_message(format!("Found p({},{},{},{})!", i, j, k, s));
+            (s, i, j, k, tests0 + tup.0, tup.1.clone(), tup.2.clone(), tup.3.clone())
         } else {
-            (i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
+            (s, i, j, k, tests0, "".to_string(), BigUint::zero(), Vec::<BigUint>::new())
         }
     })
     .progress_with(pbr.clone())
-    .inspect(|(i, j, k, _tests, description, p, divisors)| {
+    .inspect(|(s, i, j, k, _tests, description, p, divisors)| {
         if p > &BigUint::zero() && args.verbose {
             let binary_digits = p.to_str_radix(2).len();
             let decimal_digits = p.to_str_radix(10).len();
-            println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}",
-                     binary_digits, decimal_digits, description, i,j, k, p, divisors);
+            println!("{}\t{}\t|{}|p({},{},{},{})\t{}\t{:?}",
+                     binary_digits, decimal_digits, description, i,j, k, s, p, divisors);
         } else if args.debug {
             if _tests > &0 {
-                println!("Span prime p({},{},{}) is composite", i, j, k);
+                println!("Span prime p({},{},{},{}) is composite", i, j, k, s);
             }  else {
-                println!("Span p({},{},{}) span starts or ends with zero", i, j, k);
+                println!("Span p({},{},{},{}) span starts or ends with zero", i, j, k, s);
             }
         }
     })
-    .collect::<Vec<(usize, usize, i64, usize, String, BigUint, Vec<BigUint>)>>();
+    .collect::<Vec<(usize, usize, usize, i64, usize, String, BigUint, Vec<BigUint>)>>();
 
     probable_primes.sort_by(|a,b|  {
         let ordering = if args.sort_by_fragment {
-            (a.1-a.0, a.0, a.1).partial_cmp(&(b.1-b.0, b.0, b.1)).unwrap()
+            (a.2-a.1, a.1, a.2, a.0).partial_cmp(&(b.2-b.1, b.1, b.2, b.0)).unwrap()
         } else {
-            (&a.5.clone(), a.0, a.1).partial_cmp(&(&b.5, b.0, b.1)).unwrap()
+            (&a.6.clone(), a.1, a.2, a.0).partial_cmp(&(&b.6, b.1, b.2, b.0)).unwrap()
         };
         if !asc {
             ordering.reverse()
@@ -428,7 +465,7 @@ fn main() {
 
     println!("binary_digits\tdecimal_digits\tdescription\tprobable_prime\tdivisors_used");
     let mut seen = HashMap::<BigUint, bool>::new();
-    for (i, j, k, tests, description, p, divisors) in probable_primes {
+    for (s, i, j, k, tests, description, p, divisors) in probable_primes {
         if p > BigUint::zero() && (!args.final_strict
             || is_prime(&p, Some(PrimalityTestConfig::strict())).probably()) {
             //numbers_tested_total += tests;
@@ -436,7 +473,7 @@ fn main() {
             let average_tests = (binary_digits as f64 * f64::ln(2.0)).ceil() as usize;
             if !seen.contains_key(&p) || args.duplicates {
                 let decimal_digits = p.to_str_radix(10).len();
-                println!("{}\t{}\t|{}|p({},{},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, j, k, p, divisors);
+                println!("{}\t{}\t|{}|p({},{},{},{})\t{}\t{:?}", binary_digits, decimal_digits, description, i, j, k, s, p, divisors);
                 if !args.duplicates {
                     seen.insert(p, true);
                 }

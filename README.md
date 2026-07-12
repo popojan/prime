@@ -7,6 +7,13 @@ Program generates big (strongly probable) primes fast. It uses fragments of so-c
 sequence of *half the difference between two successor primes modulo 2*, as binary digits
 of a big prime candidate being tested for primality.
 
+With `--skip s` (optionally sweeping up to `--max-skip`) the DNA generalizes to **skip-gap DNA**:
+bit *n* is half the difference between p(n) and p(n−s) modulo 2, which equals the XOR of *s*
+successive base DNA bits. Each skip value yields another fragment stream over the same primes,
+multiplying the number of encodable candidates; roughly (log N)² streams suffice to reach every
+prime N from fragments of primes below it. Output notation carries the skip as a fourth
+parameter: `p(i,j,k,s)`.
+
 ## Usage
 ```
 Usage: prime [OPTIONS] [MIN_BINARY_DIGITS] [MAX_BINARY_DIGITS]
@@ -19,6 +26,8 @@ Options:
   -f, --from <FROM>          Order of the lowest precalculated prime [default: 2]
   -t, --to <TO>              Can override order of the highest precalculated prime
   -d, --divisors <DIVISORS>  Order of the highest precalculated divisor prime [default: 1000]
+  -s, --skip <SKIP>          Minimum skip: DNA bit n is (p(n) - p(n-skip))/2 mod 2 (1 = successive primes) [default: 1]
+      --max-skip <MAX_SKIP>  Maximum skip; sweeps every skip from --skip to --max-skip [default: same as --skip]
       --descending           Start generating from bigger primes to smaller
       --sort-by-fragment     Sorts resulting primes by underlying DNA fragment
   -p, --power-2 <POWER_2>    Add an extra power of two [default: -1]
